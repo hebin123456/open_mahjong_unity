@@ -1,0 +1,58 @@
+name: Build Android APK (Unity)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+    paths:
+      - 'open_mahjong_unity/**'
+      - '.github/workflows/build-android.yml'
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-Android-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-Android-
+            Library-
+
+      - name: Build Android APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: 6000.4.7f1
+          targetPlatform: Android
+          androidExportType: androidPackage
+          androidAppBundle: false
+          allowDirtyBuild: true
+          buildsPath: build
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: open_mahjong_unity-android-apk
+          path: build/Android
+          if-no-files-found: error

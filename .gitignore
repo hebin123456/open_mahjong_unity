@@ -5,6 +5,7 @@
 !/.gitattributes
 !/README.md
 !/LICENSE
+!/.github/
 !/open_mahjong_chatServer/
 !/open_mahjong_server/
 !/open_mahjong_unity/
