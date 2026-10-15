@@ -2,6 +2,11 @@ name: Build Android APK (Unity)
 
 on:
   workflow_dispatch:
+    inputs:
+      unityVersion:
+        description: 'Unity version (override only if the GameCI editor image is missing)'
+        required: false
+        default: '6000.4.7f1'
   push:
     branches: [ master ]
     paths:
@@ -43,11 +48,12 @@ jobs:
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         with:
           projectPath: open_mahjong_unity
-          unityVersion: 6000.4.7f1
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
           targetPlatform: Android
           androidExportType: androidPackage
           androidAppBundle: false
           allowDirtyBuild: true
+          versioning: None
           buildsPath: build
 
       - name: Upload APK
