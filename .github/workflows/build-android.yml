@@ -7,11 +7,18 @@ on:
         description: 'Unity version (override only if the GameCI editor image is missing)'
         required: false
         default: '6000.4.7f1'
+      releaseTag:
+        description: 'Release tag to publish the APK to (default: latest)'
+        required: false
+        default: 'latest'
   push:
     branches: [ master ]
     paths:
       - 'open_mahjong_unity/**'
       - '.github/workflows/build-android.yml'
+
+permissions:
+  contents: write
 
 jobs:
   build-android:
@@ -56,9 +63,28 @@ jobs:
           versioning: None
           buildsPath: build
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: open_mahjong_unity-android-apk
-          path: build/Android
-          if-no-files-found: error
+      - name: Locate APK
+        id: apk
+        run: |
+          echo "Found .apk files:"
+          find build -type f -iname '*.apk' -print
+          APK="$(find build -type f -iname '*.apk' | sort | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "::error::No .apk file found under build/"
+            exit 1
+          fi
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$APK")" >> "$GITHUB_OUTPUT"
+          echo "APK: $APK"
+
+      - name: Publish APK to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
+          echo "Publishing ${{ steps.apk.outputs.apk_name }} to release '$TAG'"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "Android APK ($TAG)" \
+            --notes "自动构建 · run #${{ github.run_number }} · commit ${GITHUB_SHA:0:8} · Unity ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}" \
+            "${{ steps.apk.outputs.apk_path }}"
