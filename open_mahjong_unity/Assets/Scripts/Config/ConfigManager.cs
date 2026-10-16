@@ -11,6 +11,11 @@ public partial class ConfigManager : MonoBehaviour {
 
     public static bool Debug = false;
 
+    /// <summary>
+    /// 单机模式开关：为 true 时隐藏登录/注册界面，连接建立后自动以游客身份登录，无需玩家输入账号密码。
+    /// </summary>
+    public static bool SoloMode = true;
+
     /// <summary>Steam 构建开关：为 true 时，场景中挂载 SteamBuildHider 的物体列表会被隐藏。</summary>
     public static bool BuildForSteam = true;
 

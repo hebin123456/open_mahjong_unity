@@ -87,6 +87,12 @@ public class LoginPanel : MonoBehaviour {
         BindRegisterField(registerPassword, passwordTips, 32);
         BindRegisterField(registerConfirmPassword, RegisterConfirmPasswordTips, 32);
 
+        if (ConfigManager.SoloMode) {
+            // 单机模式不需要账号登录/注册：隐藏登录注册浮窗与找回密码入口，仅保留连接状态提示。
+            if (formContainer != null) formContainer.SetActive(false);
+            if (forgotPasswordButton != null) forgotPasswordButton.gameObject.SetActive(false);
+        }
+
     }
 
     private void BindRegisterField(TMP_InputField field, string comment, int characterLimit) {

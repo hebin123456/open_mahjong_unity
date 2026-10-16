@@ -133,6 +133,11 @@ public partial class NetworkManager : MonoBehaviour {
             OnConnectionEstablished();
             ExecuteOnMainThread(() => {
                 if (ws != websocket) return;
+                // 单机模式：不等待玩家操作，连上即自动登录。
+                if (ConfigManager.SoloMode) {
+                    AutoSoloLogin();
+                    return;
+                }
                 if (IsOnLoginPage()) {
                     LoginPanel.Instance?.ShowConnectedState();
                 }
@@ -987,6 +992,14 @@ public partial class NetworkManager : MonoBehaviour {
             NotificationManager.Instance.ShowTip("登录", false, "尚未连接至OMU服务器");
             LoginPanel.Instance.ResetLoginButton();
         }
+    }
+
+    // 单机模式：连接建立后自动以游客身份登录，无需玩家输入账号密码。
+    private void AutoSoloLogin() {
+        if (UserDataManager.Instance == null) return;
+        // 已有登录身份（如后台自动重连）时不重复登录，避免被服务端当作异地登录而顶掉当前连接。
+        if (UserDataManager.Instance.UserId != 0) return;
+        TouristLogin();
     }
 
     // 4.12 获取服务器统计信息方法 GetServerStats
