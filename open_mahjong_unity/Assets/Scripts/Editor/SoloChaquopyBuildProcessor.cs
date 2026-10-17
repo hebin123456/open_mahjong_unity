@@ -12,16 +12,16 @@ using UnityEngine;
 /// 运行时在 127.0.0.1 起本地 WebSocket 服务，实现离线单机对战。
 ///
 /// 注入内容：
-/// 1. 根 build.gradle：添加 Chaquopy Gradle 插件 classpath；
-/// 2. launcher 模块 build.gradle：apply Chaquopy 插件 + 指定 Python 版本/ABI；
+/// 1. 根 build.gradle：声明 Chaquopy Gradle 插件（Unity 6 用 plugins DSL，老工程回退 buildscript classpath）；
+/// 2. launcher 模块 build.gradle：应用 Chaquopy 插件 + 指定 Python 版本/ABI；
 /// 3. launcher/src/main/python：复制项目根目录下 SoloPython 的全部 Python 源码；
 /// 4. launcher/src/main/java/com/omj/solo/SoloBridge.java：供 C# 调用的启动桥接类。
 /// </summary>
 public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
-    // Chaquopy 版本：支持 Python 3.10–3.14、AGP 7.3–9.2、minSdk 24（Unity 6 生成的 AGP 8.x 在范围内）
-    private const string ChaquopyVersion = "17.0.0";
-    // 与服务器源码保持一致、且经语法校验兼容的 Python 版本（同时兼容 32/64 位 ABI）
-    private const string PythonVersion = "3.11";
+    // Chaquopy 版本：17.1.0 起正式适配 Gradle 9/10，支持 Python 3.10–3.15、AGP 7.3–9.4
+    private const string ChaquopyVersion = "17.1.0";
+    // 与 unityci/editor 容器（Ubuntu 22.04）自带的 python3 版本保持一致，命中 Chaquopy 的 buildPython 自动探测
+    private const string PythonVersion = "3.10";
     // Unity 项目 AndroidTargetArchitectures = ARM64
     private const string PythonAbi = "arm64-v8a";
     private const string PythonSourceFolderName = "SoloPython";
@@ -33,6 +33,7 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.Android) {
             return;
         }
+        LogBuildEnvironment();
         try {
             Inject(path);
         } catch (Exception e) {
@@ -64,6 +65,7 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         File.WriteAllText(javaDst, BridgeJavaSource, new UTF8Encoding(false));
         Debug.Log("[SoloChaquopy] Java 桥接已写入 " + javaDst);
 
+        PatchSettingsGradle(projectRoot);
         PatchRootBuildGradle(Path.Combine(projectRoot, "build.gradle"));
         PatchModuleBuildGradle(Path.Combine(appModule, "build.gradle"));
         Debug.Log("[SoloChaquopy] Chaquopy 注入完成（app module = " + appModule + "）");
@@ -114,48 +116,153 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // settings.gradle：确保 pluginManagement 仓库包含 mavenCentral，
+    // Chaquopy 的 Gradle 插件（plugin marker）发布在 Maven Central。
+    // ---------------------------------------------------------------------
+    private static void PatchSettingsGradle(string projectRoot) {
+        string file = Path.Combine(projectRoot, "settings.gradle");
+        if (!File.Exists(file)) {
+            return;
+        }
+        string text = File.ReadAllText(file);
+        Debug.Log("[SoloChaquopy] settings.gradle 原文:\n" + text);
+
+        if (text.Contains("com.chaquo.python")) {
+            return;
+        }
+        int pm = text.IndexOf("pluginManagement", StringComparison.Ordinal);
+        if (pm < 0) {
+            string block = "pluginManagement {\n"
+                + "    repositories {\n"
+                + "        google()\n"
+                + "        mavenCentral()\n"
+                + "        gradlePluginPortal()\n"
+                + "    }\n"
+                + "}\n\n";
+            File.WriteAllText(file, block + text);
+            Debug.Log("[SoloChaquopy] settings.gradle 已补充 pluginManagement 仓库");
+            return;
+        }
+        int window = Math.Min(text.Length - pm, 1000);
+        if (text.Substring(pm, window).Contains("mavenCentral()")) {
+            return; // 已具备，无需改动
+        }
+        int repos = text.IndexOf("repositories", pm, StringComparison.Ordinal);
+        int brace = repos >= 0 ? text.IndexOf('{', repos) : -1;
+        if (brace < 0) {
+            throw new Exception("settings.gradle pluginManagement 缺少 repositories 块: " + file);
+        }
+        File.WriteAllText(file, text.Insert(brace + 1, "\n        mavenCentral()"));
+        Debug.Log("[SoloChaquopy] settings.gradle pluginManagement 已补充 mavenCentral()");
+    }
+
+    // ---------------------------------------------------------------------
+    // 根 build.gradle：声明 Chaquopy 插件。Unity 6 生成的是 plugins DSL
+    // （没有 buildscript/dependencies），因此优先注入根 plugins 块；
+    // 若为老式工程则回退到 buildscript classpath。
+    // ---------------------------------------------------------------------
     private static void PatchRootBuildGradle(string file) {
         if (!File.Exists(file)) {
             throw new Exception("缺少根 build.gradle: " + file);
         }
         string text = File.ReadAllText(file);
-        if (text.Contains("com.chaquo.python:gradle")) {
+        Debug.Log("[SoloChaquopy] 根 build.gradle 原文:\n" + text);
+
+        if (text.Contains("com.chaquo.python")) {
             return;
         }
-        int buildscript = text.IndexOf("buildscript", StringComparison.Ordinal);
-        int dependencies = buildscript >= 0
-            ? text.IndexOf("dependencies", buildscript, StringComparison.Ordinal)
-            : -1;
-        if (dependencies < 0) {
-            dependencies = text.IndexOf("dependencies", StringComparison.Ordinal);
+
+        // 首选：plugins DSL（id + version，apply false，供各子模块 apply）
+        if (TryInjectIntoPluginsBlock(file, text,
+                "    id \"com.chaquo.python\" version \"" + ChaquopyVersion + "\" apply false")) {
+            Debug.Log("[SoloChaquopy] 已在根 plugins 块声明 Chaquopy " + ChaquopyVersion);
+            return;
         }
-        if (dependencies < 0) {
-            throw new Exception("根 build.gradle 缺少 dependencies 块: " + file);
+
+        string classpath = "classpath \"com.chaquo.python:gradle:" + ChaquopyVersion + "\"";
+        int bs = text.IndexOf("buildscript", StringComparison.Ordinal);
+        if (bs < 0) {
+            string block = "buildscript {\n"
+                + "    repositories {\n"
+                + "        google()\n"
+                + "        mavenCentral()\n"
+                + "    }\n"
+                + "    dependencies {\n"
+                + "        " + classpath + "\n"
+                + "    }\n"
+                + "}\n\n";
+            File.WriteAllText(file, block + text);
+            Debug.Log("[SoloChaquopy] 已在根 build.gradle 头部注入 buildscript classpath");
+            return;
         }
-        int brace = text.IndexOf('{', dependencies);
-        if (brace < 0) {
-            throw new Exception("根 build.gradle dependencies 块格式异常: " + file);
+
+        int deps = text.IndexOf("dependencies", bs, StringComparison.Ordinal);
+        int brace = deps >= 0 ? text.IndexOf('{', deps) : -1;
+        if (brace > 0) {
+            File.WriteAllText(file, text.Insert(brace + 1, "\n        " + classpath));
+            Debug.Log("[SoloChaquopy] 已向已有 buildscript.dependencies 注入 Chaquopy classpath");
+            return;
         }
-        string injection = "\n        classpath \"com.chaquo.python:gradle:" + ChaquopyVersion + "\"";
-        File.WriteAllText(file, text.Insert(brace + 1, injection));
-        Debug.Log("[SoloChaquopy] 已注入 Chaquopy Gradle 插件依赖 " + ChaquopyVersion);
+        int bsBrace = text.IndexOf('{', bs);
+        if (bsBrace > 0) {
+            File.WriteAllText(file, text.Insert(bsBrace + 1,
+                "\n    dependencies {\n        " + classpath + "\n    }"));
+            Debug.Log("[SoloChaquopy] 已向已有 buildscript 注入 dependencies 块");
+            return;
+        }
+        throw new Exception("根 build.gradle 的 buildscript 块格式异常: " + file);
     }
 
+    /// <summary>把一行声明插入到最外层 plugins { } 块中；找不到该块时返回 false。</summary>
+    private static bool TryInjectIntoPluginsBlock(string file, string text, string line) {
+        int idx = 0;
+        while ((idx = text.IndexOf("plugins", idx, StringComparison.Ordinal)) >= 0) {
+            int brace = text.IndexOf('{', idx);
+            if (brace < 0) {
+                return false;
+            }
+            string between = text.Substring(idx + "plugins".Length, brace - idx - "plugins".Length);
+            if (between.Trim().Length == 0) {
+                File.WriteAllText(file, text.Insert(brace + 1, "\n" + line));
+                return true;
+            }
+            idx += "plugins".Length;
+        }
+        return false;
+    }
+
+    // ---------------------------------------------------------------------
+    // 模块 build.gradle：应用 Chaquopy 插件并配置 Python 版本 / ABI。
+    // ---------------------------------------------------------------------
     private static void PatchModuleBuildGradle(string file) {
         if (!File.Exists(file)) {
             throw new Exception("缺少模块 build.gradle: " + file);
         }
         string text = File.ReadAllText(file);
+        Debug.Log("[SoloChaquopy] 模块 build.gradle 原文:\n" + text);
         if (text.Contains("com.chaquo.python")) {
             return;
         }
-        StringBuilder sb = new StringBuilder(text);
+
+        if (!TryInjectIntoPluginsBlock(file, text, "    id \"" + ChaquopyPluginId + "\"")) {
+            File.AppendAllText(file, "\napply plugin: '" + ChaquopyPluginId + "'\n");
+            text = File.ReadAllText(file);
+        }
+
+        StringBuilder sb = new StringBuilder(File.ReadAllText(file));
         sb.AppendLine();
         sb.AppendLine("// ---- injected by SoloChaquopyBuildProcessor (offline solo mode) ----");
-        sb.AppendLine("apply plugin: 'com.chaquo.python'");
         sb.AppendLine("chaquopy {");
         sb.AppendLine("    defaultConfig {");
         sb.AppendLine("        version = \"" + PythonVersion + "\"");
+        sb.AppendLine("        pyc {");
+        sb.AppendLine("            // 构建机 Python 版本不确定，关闭字节码编译以避免依赖 buildPython；");
+        sb.AppendLine("            // 代价是首次运行时在设备上编译，启动稍慢。");
+        sb.AppendLine("            src = false");
+        sb.AppendLine("            pip = false");
+        sb.AppendLine("            stdlib = false");
+        sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine("}");
         sb.AppendLine("android {");
@@ -167,6 +274,30 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         sb.AppendLine("}");
         File.WriteAllText(file, sb.ToString());
         Debug.Log("[SoloChaquopy] 已注入 Chaquopy 插件配置（Python " + PythonVersion + " / " + PythonAbi + "）");
+    }
+
+    private const string ChaquopyPluginId = "com.chaquo.python";
+
+    // 诊断用：记录 Unity 进程所在环境（即 CI 容器）里的 Python 解释器情况。
+    private static void LogBuildEnvironment() {
+        try {
+            var psi = new System.Diagnostics.ProcessStartInfo {
+                FileName = "/bin/bash",
+                Arguments = "-lc \"for c in python3 python3.10 python3.11 python3.12 python; do "
+                          + "printf '%s -> ' \\\"$c\\\"; command -v $c || echo '(not found)'; done; "
+                          + "python3 -V 2>&1 || true\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using (var p = System.Diagnostics.Process.Start(psi)) {
+                string output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+                p.WaitForExit(5000);
+                Debug.Log("[SoloChaquopy] 构建机 Python 探测:\n" + output);
+            }
+        } catch (Exception e) {
+            Debug.LogWarning("[SoloChaquopy] 构建机 Python 探测失败: " + e.Message);
+        }
     }
 
     // 桥接类：不接收参数，自行从 UnityPlayer 取 Context，避免 Unity 调用 Java 时的 JNI 签名不匹配问题。
