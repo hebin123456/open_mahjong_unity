@@ -12,7 +12,7 @@ on:
         required: false
         default: 'latest'
   push:
-    branches: [ master ]
+    branches: [ master, feat/offline-hangzhou ]
     paths:
       - 'open_mahjong_unity/**'
       - '.github/workflows/build-android.yml'

@@ -580,10 +580,6 @@ public partial class NetworkManager : MonoBehaviour {
                 response.login_info.user_id,
                 response.login_info.is_tourist
             );
-            // 单机模式：登录成功后直接开局上桌，跳过大厅与建房流程。
-            if (ConfigManager.SoloMode) {
-                SendSoloStart();
-            }
             if (!AutoReconnect.IsActive) {
                 RoomNetworkManager.Instance?.CancelPendingRoomEntry();
                 RoomListPanel.Instance?.ResetSessionCaches();
@@ -1010,22 +1006,6 @@ public partial class NetworkManager : MonoBehaviour {
         // 已有登录身份（如后台自动重连）时不重复登录，避免被服务端当作异地登录而顶掉当前连接。
         if (UserDataManager.Instance.UserId != 0) return;
         TouristLogin();
-    }
-
-    // 单机模式：登录成功后直接请求本机服务开局（1 真人 + 3 机器人），无需经过大厅建房。
-    public async void SendSoloStart() {
-        try {
-            if (websocket == null || websocket.State != WebSocketState.Open) return;
-            // 默认 4 局、步时 20s、局时 300s，与服务端 _build_room_data 默认值一致
-            await websocket.SendText(JsonConvert.SerializeObject(new {
-                type = "solo/start",
-                game_round = 4,
-                step_timer = 20,
-                round_timer = 300
-            }));
-        } catch (Exception e) {
-            Debug.LogError($"发送单机开局请求失败: {e.Message}");
-        }
     }
 
     // 4.12 获取服务器统计信息方法 GetServerStats

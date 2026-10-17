@@ -296,8 +296,9 @@ async def _stop_solo_game(server: SoloServer):
 
 async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
     async with server._start_lock:
-        if server._game is not None and not server._game.game_task.done():
-            return server._game
+        # 每次开局都先结束上一局，保证客户端总能收到一份新的 game_start
+        # （否则大厅里再次点「开始游戏」会复用尚未结束的旧对局，界面毫无反应）。
+        await _stop_solo_game(server)
         from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
 
         room_data = _build_room_data(**opts)
