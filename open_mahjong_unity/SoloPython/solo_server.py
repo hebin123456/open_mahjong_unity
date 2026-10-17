@@ -74,15 +74,21 @@ class WsConnection:
         self.websocket = self
 
     async def send_json(self, payload):
-        _note("→ " + str(payload.get("type")))
-        await self._send_text(json.dumps(payload, ensure_ascii=False))
+        msg_type = str(payload.get("type"))
+        try:
+            await self._send_text(json.dumps(payload, ensure_ascii=False))
+        except Exception as exc:
+            # 只有真正写进 socket 才算发送成功，避免「先记轨迹后写失败」造成假阳性
+            _note("!! 发送失败: %s (%s)" % (msg_type, exc))
+            raise
+        _note("→ " + msg_type)
 
     async def _send_text(self, text):
         await self._send_frame(0x1, text.encode("utf-8"))
 
     async def _send_frame(self, opcode, data):
         if self.closed:
-            return
+            raise ConnectionError("websocket closed")
         header = bytearray()
         header.append(0x80 | opcode)
         n = len(data)
@@ -99,6 +105,7 @@ class WsConnection:
             await self.writer.drain()
         except Exception:
             self.closed = True
+            raise
 
     async def close(self):
         if self.closed:
