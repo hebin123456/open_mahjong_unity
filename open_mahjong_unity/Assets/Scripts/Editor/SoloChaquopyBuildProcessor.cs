@@ -466,6 +466,20 @@ public final class SoloBridge {
         }
     }
 
+    /**
+     * 取内嵌 Python 服务最近的协议轨迹（收/发的消息类型与异常），供 C# 诊断面板展示。
+     */
+    public static String recentEvents() {
+        if (!Python.isStarted()) {
+            return ""Python 未启动"";
+        }
+        try {
+            return Python.getInstance().getModule(""solo_server"").callAttr(""recent_events"").toString();
+        } catch (Throwable t) {
+            return ""ERR(java): "" + t;
+        }
+    }
+
     // 通过反射读取 UnityPlayer.currentActivity：
     // unity-classes.jar 不在 launcher 模块的编译类路径中，直接引用会导致 javac 找不到符号。
     private static Context resolveActivityContext() {

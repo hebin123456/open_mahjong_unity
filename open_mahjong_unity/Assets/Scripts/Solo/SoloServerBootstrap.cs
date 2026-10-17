@@ -35,10 +35,26 @@ public static class SoloServerBootstrap {
             Debug.LogError("[SoloServer] 启动内嵌 Python 服务异常: " + e.Message);
         }
     }
+
+    /// <summary>
+    /// 内嵌 Python 服务最近的协议轨迹（收/发的消息类型与异常），供诊断面板展示。
+    /// 手机上无法查看 logcat，「点了没反应」时这是唯一的定位手段。
+    /// </summary>
+    public static string RecentEvents() {
+        try {
+            using (var bridge = new AndroidJavaClass("com.omj.solo.SoloBridge")) {
+                return bridge.CallStatic<string>("recentEvents");
+            }
+        } catch (System.Exception e) {
+            return "ERR(csharp): " + e.Message;
+        }
+    }
 #else
     /// <summary>非 Android 平台没有内嵌服务，状态恒为空。</summary>
     public static string Status => "";
     /// <summary>非 Android 平台为空操作。</summary>
     public static void EnsureStarted() { }
+    /// <summary>非 Android 平台没有内嵌服务轨迹。</summary>
+    public static string RecentEvents() => "";
 #endif
 }

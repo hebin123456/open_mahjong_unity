@@ -15,6 +15,7 @@
 
 import asyncio
 import base64
+import collections
 import hashlib
 import json
 import logging
@@ -30,6 +31,21 @@ if _ROOT not in sys.path:
 logger = logging.getLogger("solo")
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+# 协议轨迹环形缓冲：记录收到的请求 / 发出的消息 / 异常，供设备端诊断面板展示
+# （手机上看不到 logcat 时，这是定位「点了没反应」最快的手段）。
+_EVENTS = collections.deque(maxlen=80)
+
+
+def _note(text: str) -> None:
+    _EVENTS.append(text)
+    logger.info("TRACE %s", text)
+
+
+def recent_events() -> str:
+    """返回最近的协议轨迹（每行一条），供 C# 诊断面板读取。"""
+    return "\n".join(_EVENTS)
+
 
 # 真人座位：user_id 必须 > 10（引擎用 user_id <= 10 判定机器人）
 HUMAN_USER_ID = 101
@@ -58,6 +74,7 @@ class WsConnection:
         self.websocket = self
 
     async def send_json(self, payload):
+        _note("→ " + str(payload.get("type")))
         await self._send_text(json.dumps(payload, ensure_ascii=False))
 
     async def _send_text(self, text):
@@ -315,6 +332,7 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
         state.game_task = asyncio.create_task(state.run_game_loop())
         logger.info("单机杭州对局已启动 gamestate_id=%s 玩家=%s",
                     state.gamestate_id, room_data["player_list"])
+        _note("已开局 gamestate_id=" + str(state.gamestate_id))
         return state
 
 
@@ -327,6 +345,7 @@ async def _send(conn: WsConnection, payload: dict):
 
 async def _handle_message(server: SoloServer, conn: WsConnection, message: dict):
     mtype = message.get("type", "")
+    _note("← " + str(mtype))
 
     if mtype == "send_release_version":
         return  # 单机不校验版本
@@ -439,6 +458,7 @@ async def _serve_connection(server: SoloServer, reader, writer):
     conn = WsConnection(reader, writer)
     conn.Connect_id = f"solo-{id(conn)}"
     logger.info("客户端已连接 %s", conn.Connect_id)
+    _note("客户端已连接 " + str(conn.Connect_id))
     try:
         while True:
             opcode, payload = await read_frame(reader)
@@ -457,8 +477,20 @@ async def _serve_connection(server: SoloServer, reader, writer):
                 continue
             try:
                 await _handle_message(server, conn, message)
-            except Exception:
+            except Exception as exc:
                 logger.exception("处理消息失败: %s", message.get("type"))
+                reason = "%s: %s" % (type(exc).__name__, exc)
+                _note("!! " + str(message.get("type")) + " -> " + reason)
+                # 内嵌服务没有独立的运维日志通道，失败原因必须回吐给客户端，
+                # 否则用户只会看到「点了没反应」，无从定位。
+                try:
+                    await conn.send_json({
+                        "type": "error_message",
+                        "success": False,
+                        "message": "单机服务处理 %s 失败: %s" % (message.get("type"), reason),
+                    })
+                except Exception:
+                    pass
     except Exception:
         logger.exception("连接异常")
     finally:
@@ -473,6 +505,7 @@ async def _serve_connection(server: SoloServer, reader, writer):
         if game is not None and not game.game_task.done():
             game.game_task.cancel()
         logger.info("客户端断开 %s", conn.Connect_id)
+        _note("客户端断开 " + str(conn.Connect_id))
 
 
 async def run_server(host="127.0.0.1", port=18763, ready=None):

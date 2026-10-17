@@ -879,6 +879,7 @@ public partial class RoomNetworkManager : MonoBehaviour {
             type = "room/start_game",
             room_id = roomId
         };
+        Debug.Log($"[Solo] 发送 room/start_game roomId={roomId} socketOpen={GetWebSocket()?.State == WebSocketState.Open}");
         await GetWebSocket().SendText(JsonConvert.SerializeObject(request));
     }
 

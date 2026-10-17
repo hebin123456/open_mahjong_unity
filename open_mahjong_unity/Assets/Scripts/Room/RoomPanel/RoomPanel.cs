@@ -262,6 +262,9 @@ public partial class RoomPanel : MonoBehaviour {
     }
 
     private void StartButtonClicked() {
+        // 单机诊断：确认点击确实到达了按钮回调，并带上房主判定与可点击状态
+        Debug.Log($"[Solo] 点击开始游戏 roomId={UserDataManager.Instance.RoomId} " +
+                  $"userId={UserDataManager.Instance.UserId} interactable={startButton.interactable}");
         RoomNetworkManager.Instance.StartGame(UserDataManager.Instance.RoomId);
     }
 
