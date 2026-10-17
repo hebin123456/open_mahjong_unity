@@ -29,8 +29,17 @@ public partial class ConfigManager : MonoBehaviour {
     public static string documentUrl;
     public static string mobileDownloadUrl;
 
+    /// <summary>单机版内嵌服务端监听端口（由 Chaquopy 启动的本地 Python WebSocket 服务）。</summary>
+    public const int SoloPort = 18763;
+
     static ConfigManager() {
-        if (Debug) {
+        if (SoloMode) {
+            // 单机模式：连接本机内嵌的杭州麻将服务，无需外部网络
+            gameUrl = $"ws://127.0.0.1:{SoloPort}/game"; // 本地游戏服务器
+            chatUrl = $"ws://127.0.0.1:{SoloPort}/chat"; // 单机不使用聊天
+            webApiUrl = $"http://127.0.0.1:{SoloPort}"; // 单机不使用平台 HTTP
+            releaseVersion = 26; // 发行版号(验证客户端-服务器版本是否一致)
+        } else if (Debug) {
             // 开发接口地址
             gameUrl = "ws://localhost:8081/game"; // 游戏服务器地址(连接到OMU服务器)
             chatUrl = "ws://localhost:8083/chat"; // 聊天服务器地址(连接到OMUChat服务器)

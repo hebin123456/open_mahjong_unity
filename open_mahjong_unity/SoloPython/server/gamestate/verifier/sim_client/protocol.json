@@ -1,0 +1,110 @@
+{
+  "sim_client_version": 2,
+  "rule": "guobiao",
+  "table_variants": {
+    "guobiao/standard": { "player_count": 4, "hands_per_wind": 4 },
+    "guobiao/sanma": {
+      "player_count": 3,
+      "hands_per_wind": 3,
+      "removed_tiles": [12, 13, 14, 15, 16, 17, 18],
+      "seat_positions": ["self", "right", "left"],
+      "ron_actions": ["hu_first", "hu_second"],
+      "score_changes_count": 3,
+      "record_seats_count": 3,
+      "fourth_seat_is_placeholder": true
+    }
+  },
+  "hand_actions": [
+    "cut",
+    "buhua",
+    "nuki",
+    "hu_self",
+    "hu_flower",
+    "initial_hu",
+    "sea_bottom",
+    "buzhang",
+    "angang",
+    "jiagang",
+    "jiuzhongjiupai",
+    "riichi_cut",
+    "pass"
+  ],
+  "other_actions": [
+    "chi_left",
+    "chi_mid",
+    "chi_right",
+    "peng",
+    "gang",
+    "hu",
+    "hu_first",
+    "hu_second",
+    "hu_third",
+    "pass"
+  ],
+  "extra_actions": [
+    "ready",
+    "force_pass"
+  ],
+  "unity_contract_files": [
+    "open_mahjong_unity/Assets/Scripts/Network/Serialize/Response.cs",
+    "open_mahjong_unity/Assets/Scripts/Network/GameStateNetworkManager.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/GameStateManager/NormalGameStateManager.Actions.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/CanvasManager/GameCanvas_ActionButton.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/GameSceneUI/Result/Panels/EndResultPanel.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordJsonDecoder.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordData.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordMeldCodec.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/MeldStackLayout.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/RecordHuHandBuilder.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordManager.GotoAction.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Sichuan/SichuanGameState.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Sichuan/GameCanvas.Sichuan.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Sichuan/SichuanReplay.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordManager.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Record/GameRecordManager.ChongHint.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Zhongyong/ZhongyongGameState.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Zhongyong/NanqueGameState.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Guobiao/GuobiaoBloodBattleReplay.cs",
+    "open_mahjong_unity/Assets/Scripts/GameScene/Rules/Taiwan/TaiwanReplay.cs"
+  ],
+  "component_profiles": {
+    "sichuan/xueliu": {
+      "opening_action": "xueliu_throw_three",
+      "dingque": false,
+      "continue_message": "xueliu_continue",
+      "mid_win_result_panel": false
+    },
+    "sichuan/xueliu_exchange": {
+      "opening_action": "xueliu_exchange_three",
+      "dingque": true,
+      "continue_message": "xueliu_continue",
+      "mid_win_result_panel": false
+    },
+    "zhongyong/standard": {
+      "blood_battle": false
+    },
+    "zhongyong/nanque": {
+      "blood_battle": true,
+      "deferred_score_settlement": true
+    }
+  },
+  "special_phase_actions": {
+    "three_tiles": [
+      "xueliu_throw_three",
+      "xueliu_exchange_three"
+    ],
+    "dingque": [
+      "dingque"
+    ]
+  },
+  "scope_notes": [
+    "rule identifies the interactive lab session default; component and record regressions cover the listed additional profiles.",
+    "Dedicated opening selectors do not extend the common hand-action or other-action button allowlists.",
+    "Settlement label formatting is verified in Unity using the active replay rule context; component-state simulations do not render these labels.",
+    "Hashes detect source drift; passing the lock is not a claim that every field or visual behavior has been tested."
+  ],
+  "meld_display_signs": {
+    "101": "明面叠牌（备用）：沿原始 mask 顺序叠在最近的 sign=0/1/2/3 牌上，连续标记逐层增加，不占横向槽位。",
+    "102": "暗面叠牌（备用）：位置及归属同 101，显示牌背；当前行牌规则不生成 101/102，展示牌不参与基础副露删牌或计分。"
+  }
+}

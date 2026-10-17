@@ -1,4 +1,7 @@
-from pydantic import BaseModel, Field, field_serializer, field_validator, model_serializer
+try:
+    from pydantic import BaseModel, Field, field_serializer, field_validator, model_serializer
+except ImportError:  # 单机版（Chaquopy）无 pydantic v2 wheel，使用纯标准库兜底
+    from .pydantic_fallback import BaseModel, Field, field_serializer, field_validator, model_serializer
 from typing import Dict, Optional, List
 
 
