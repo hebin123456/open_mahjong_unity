@@ -320,13 +320,72 @@ async def _serve_connection(server: SoloServer, reader, writer):
         logger.info("客户端断开 %s", conn.Connect_id)
 
 
-async def run_server(host="127.0.0.1", port=18763):
+async def run_server(host="127.0.0.1", port=18763, ready=None):
     server = SoloServer()
     srv = await asyncio.start_server(
         lambda r, w: _serve_connection(server, r, w), host, port)
     logger.info("单机服务已监听 ws://%s:%d/game", host, port)
+    if ready is not None:
+        ready.set()
     async with srv:
         await srv.serve_forever()
+
+
+# ----------------------------------------------------------------------------
+# Android（Chaquopy）入口：在独立线程里跑事件循环，主线程立即返回
+# ----------------------------------------------------------------------------
+_server_thread = None
+_server_ready = None
+_server_error = None
+
+
+def start_background():
+    """供 C# 通过 Chaquopy 调用的零参入口。
+
+    在后台线程内启动 asyncio 事件循环并监听本地端口，等待端口就绪后返回，
+    使 Unity 主线程在客户端发起 WebSocket 连接前即可连上服务。
+
+    返回启动状态字符串：以 ``"OK"`` 开头表示端口已就绪；否则为 ``"ERR: <原因>"``。
+    线程内的异常没法抛回 Java，所以在这里转成字符串返回给 C#，失败时客户端会原样展示。
+    """
+    global _server_thread, _server_ready, _server_error
+    import threading
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    if _server_ready is None:
+        _server_ready = threading.Event()
+    if _server_thread is not None and _server_thread.is_alive():
+        return "OK（服务已在运行）"
+
+    host = os.environ.get("SOLO_HOST", "127.0.0.1")
+    port = int(os.environ.get("SOLO_PORT", "18763"))
+    _server_ready.clear()
+    _server_error = None
+
+    def _run():
+        global _server_error
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(run_server(host, port, _server_ready))
+        except BaseException as exc:
+            _server_error = f"{type(exc).__name__}: {exc}"
+            logger.exception("单机服务退出")
+        finally:
+            _server_ready.set()
+
+    _server_thread = threading.Thread(target=_run, name="solo-ws", daemon=True)
+    _server_thread.start()
+    # 首次启动 Chaquopy 需要解压标准库，给足冷启动时间
+    ok = _server_ready.wait(timeout=15.0)
+    logger.info("单机服务后台线程已启动 ready=%s error=%s", ok, _server_error)
+    if _server_error:
+        return "ERR: " + _server_error
+    if ok:
+        return "OK"
+    return f"ERR: 15s 内未监听 {host}:{port}"
 
 
 def main():

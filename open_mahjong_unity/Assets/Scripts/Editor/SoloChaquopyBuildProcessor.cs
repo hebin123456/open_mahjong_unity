@@ -312,34 +312,40 @@ import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 
 /**
- * 启动内嵌的杭州麻将 Python 服务（Chaquopy）。由 C# 通过 AndroidJavaClass 调用 start()。
+ * 启动内嵌的杭州麻将 Python 服务（Chaquopy）。由 C# 通过 AndroidJavaClass 调用 startWithStatus()。
  */
 public final class SoloBridge {
     private static final String TAG = ""SoloBridge"";
     private static boolean started = false;
+    private static String lastStatus = ""尚未调用"";
 
-    /** 幂等启动；成功返回 true，失败返回 false 并记录日志，供调用方重试。 */
-    public static synchronized boolean start() {
+    /**
+     * 幂等启动内嵌 Python 服务，返回启动状态字符串（以 ""OK"" 开头表示端口已就绪）。
+     * 失败时返回 ""ERR: <原因>""，由 C# 记录并在客户端提示里原样展示，便于定位问题。
+     */
+    public static synchronized String startWithStatus() {
         if (started) {
-            return true;
+            return lastStatus;
         }
         try {
             Context context = resolveActivityContext();
             if (context == null) {
-                Log.e(TAG, ""currentActivity is null, retry later"");
-                return false;
+                lastStatus = ""ERR(java): 无法获取 Activity（UnityPlayer.currentActivity 为 null）"";
+                Log.e(TAG, lastStatus);
+                return lastStatus;
             }
             if (!Python.isStarted()) {
                 Python.start(new AndroidPlatform(context));
             }
             PyObject module = Python.getInstance().getModule(""solo_server"");
-            boolean ok = module.callAttr(""start_background"").toBoolean();
-            started = true;
-            Log.i(TAG, ""solo python server start_background -> "" + ok);
-            return true;
+            lastStatus = module.callAttr(""start_background"").toString();
+            started = lastStatus.startsWith(""OK"");
+            Log.i(TAG, ""solo python server: "" + lastStatus);
+            return lastStatus;
         } catch (Throwable t) {
+            lastStatus = ""ERR(java): "" + t;
             Log.e(TAG, ""failed to start solo python server"", t);
-            return false;
+            return lastStatus;
         }
     }
 

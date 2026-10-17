@@ -223,9 +223,14 @@ public partial class NetworkManager : MonoBehaviour {
     private void TryShowDisconnectDialog() {
         if (_disconnectDialogState != DisconnectDialogState.Disconnected) return;
         _disconnectDialogState = DisconnectDialogState.Shown;
+        string detail = "与服务器的连接已断开。如正处于一场游戏对局中，点击重连即可回到登录界面并尝试重新连接服务器；游客无法重连至游戏。";
+        // 单机版连不上多半是内嵌服务没起来，把原因一并显示出来，避免只看到一句“连接已断开”。
+        if (ConfigManager.SoloMode && !string.IsNullOrEmpty(SoloServerBootstrap.Status)) {
+            detail += "\n\n[本地服务] " + SoloServerBootstrap.Status;
+        }
         NotificationManager.Instance.ShowMessage(
             "连接已断开",
-            "与服务器的连接已断开。如正处于一场游戏对局中，点击重连即可回到登录界面并尝试重新连接服务器；游客无法重连至游戏。",
+            detail,
             "disconnect"
         );
     }
