@@ -324,7 +324,7 @@ public final class SoloBridge {
             return true;
         }
         try {
-            Context context = com.unity3d.player.UnityPlayer.currentActivity;
+            Context context = resolveActivityContext();
             if (context == null) {
                 Log.e(TAG, ""currentActivity is null, retry later"");
                 return false;
@@ -340,6 +340,19 @@ public final class SoloBridge {
         } catch (Throwable t) {
             Log.e(TAG, ""failed to start solo python server"", t);
             return false;
+        }
+    }
+
+    // 通过反射读取 UnityPlayer.currentActivity：
+    // unity-classes.jar 不在 launcher 模块的编译类路径中，直接引用会导致 javac 找不到符号。
+    private static Context resolveActivityContext() {
+        try {
+            Class<?> unityPlayer = Class.forName(""com.unity3d.player.UnityPlayer"");
+            Object activity = unityPlayer.getField(""currentActivity"").get(null);
+            return (Context) activity;
+        } catch (Throwable t) {
+            Log.e(TAG, ""failed to resolve UnityPlayer.currentActivity"", t);
+            return null;
         }
     }
 }
