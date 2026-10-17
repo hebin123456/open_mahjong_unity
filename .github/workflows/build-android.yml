@@ -60,6 +60,8 @@ jobs:
           androidExportType: androidPackage
           androidAppBundle: false
           allowDirtyBuild: true
+          # 固定产物名，避免改动 productName（应用显示名）时改变 APK 文件名、影响 release 下载链接
+          buildName: Android
           versioning: None
           buildsPath: build
 

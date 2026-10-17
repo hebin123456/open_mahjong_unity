@@ -26,6 +26,11 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
     private const string PythonAbi = "arm64-v8a";
     private const string PythonSourceFolderName = "SoloPython";
     private const string BridgeRelativePath = "com/omj/solo/SoloBridge.java";
+    // 应用图标源文件（144×144 PNG），放在项目根目录 SoloIcon/ 下（Assets 之外，无需 Unity 导入）。
+    private const string IconSourceFolderName = "SoloIcon";
+    private const string IconSourceFileName = "app_icon.png";
+    // Android 应用显示名，写入生成工程的 <application android:label>。
+    private const string AppDisplayName = "超级麻将";
 
     public int callbackOrder => 0;
 
@@ -64,6 +69,9 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         Directory.CreateDirectory(Path.GetDirectoryName(javaDst));
         File.WriteAllText(javaDst, BridgeJavaSource, new UTF8Encoding(false));
         Debug.Log("[SoloChaquopy] Java 桥接已写入 " + javaDst);
+
+        InjectAppIcon(appModule, projectDir);
+        PatchManifestLabel(appModule);
 
         PatchSettingsGradle(projectRoot);
         PatchRootBuildGradle(Path.Combine(projectRoot, "build.gradle"));
@@ -274,6 +282,115 @@ public class SoloChaquopyBuildProcessor : IPostGenerateGradleAndroidProject {
         sb.AppendLine("}");
         File.WriteAllText(file, sb.ToString());
         Debug.Log("[SoloChaquopy] 已注入 Chaquopy 插件配置（Python " + PythonVersion + " / " + PythonAbi + "）");
+    }
+
+    // ---------------------------------------------------------------------
+    // 应用图标：Unity 输出的 launcher 图标都是 mipmap-* 下的普通 PNG（无自适应
+    // XML），因此按每张 PNG 自身的像素尺寸用源图标覆盖，即可在所有 Android 版本生效。
+    // ---------------------------------------------------------------------
+    private static void InjectAppIcon(string appModule, string projectDir) {
+        string sourcePath = Path.Combine(projectDir, IconSourceFolderName, IconSourceFileName);
+        if (!File.Exists(sourcePath)) {
+            Debug.LogWarning("[SoloChaquopy] 未找到图标源文件，跳过图标注入: " + sourcePath);
+            return;
+        }
+        string resRoot = Path.Combine(appModule, "src", "main", "res");
+        string[] mipmaps = Directory.Exists(resRoot)
+            ? Directory.GetDirectories(resRoot, "mipmap-*")
+            : Array.Empty<string>();
+        if (mipmaps.Length == 0) {
+            Debug.LogWarning("[SoloChaquopy] 生成工程内未找到 mipmap 目录，跳过图标注入");
+            return;
+        }
+
+        Texture2D source = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        try {
+            source.LoadImage(File.ReadAllBytes(sourcePath));
+            int replaced = 0;
+            foreach (string dir in mipmaps) {
+                foreach (string png in Directory.GetFiles(dir, "*.png")) {
+                    if (!TryReadPngSize(png, out int width, out int height) || width <= 0 || height <= 0) {
+                        continue;
+                    }
+                    Texture2D scaled = ResizeBilinear(source, width, height);
+                    File.WriteAllBytes(png, scaled.EncodeToPNG());
+                    UnityEngine.Object.DestroyImmediate(scaled);
+                    replaced++;
+                }
+            }
+            Debug.Log("[SoloChaquopy] 已用 " + IconSourceFileName + " 覆盖 " + replaced + " 张 launcher 图标");
+        } finally {
+            UnityEngine.Object.DestroyImmediate(source);
+        }
+    }
+
+    /// <summary>只读取 PNG 头部的宽高，避免为测量尺寸而完整解码。</summary>
+    private static bool TryReadPngSize(string path, out int width, out int height) {
+        width = 0;
+        height = 0;
+        byte[] header = new byte[24];
+        using (FileStream fs = File.OpenRead(path)) {
+            if (fs.Read(header, 0, 24) != 24) {
+                return false;
+            }
+        }
+        if (header[0] != 0x89 || header[1] != 'P' || header[2] != 'N' || header[3] != 'G') {
+            return false;
+        }
+        width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+        height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+        return true;
+    }
+
+    /// <summary>双线性缩放，纯 CPU 实现，不依赖 GPU / RenderTexture。</summary>
+    private static Texture2D ResizeBilinear(Texture2D source, int width, int height) {
+        Texture2D result = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        Color[] src = source.GetPixels();
+        int sw = source.width;
+        int sh = source.height;
+        Color[] dst = new Color[width * height];
+        for (int y = 0; y < height; y++) {
+            float sy = (y + 0.5f) * sh / height - 0.5f;
+            int y0 = Mathf.Clamp(Mathf.FloorToInt(sy), 0, sh - 1);
+            int y1 = Mathf.Clamp(y0 + 1, 0, sh - 1);
+            float fy = Mathf.Clamp01(sy - y0);
+            for (int x = 0; x < width; x++) {
+                float sx = (x + 0.5f) * sw / width - 0.5f;
+                int x0 = Mathf.Clamp(Mathf.FloorToInt(sx), 0, sw - 1);
+                int x1 = Mathf.Clamp(x0 + 1, 0, sw - 1);
+                float fx = Mathf.Clamp01(sx - x0);
+                Color top = Color.Lerp(src[y0 * sw + x0], src[y0 * sw + x1], fx);
+                Color bottom = Color.Lerp(src[y1 * sw + x0], src[y1 * sw + x1], fx);
+                dst[y * width + x] = Color.Lerp(top, bottom, fy);
+            }
+        }
+        result.SetPixels(dst);
+        result.Apply();
+        return result;
+    }
+
+    // 直接把 <application> 的 android:label 改成中文应用名（不依赖 productName 的间接映射）。
+    private static void PatchManifestLabel(string appModule) {
+        string manifestPath = Path.Combine(appModule, "src", "main", "AndroidManifest.xml");
+        if (!File.Exists(manifestPath)) {
+            Debug.LogWarning("[SoloChaquopy] 未找到 AndroidManifest.xml，跳过应用名注入: " + manifestPath);
+            return;
+        }
+        string text = File.ReadAllText(manifestPath);
+        var app = System.Text.RegularExpressions.Regex.Match(text, "<application\\b[^>]*>");
+        if (!app.Success) {
+            Debug.LogWarning("[SoloChaquopy] AndroidManifest 无 <application> 标签，跳过应用名注入");
+            return;
+        }
+        string tag = app.Value;
+        string patched = System.Text.RegularExpressions.Regex.IsMatch(tag, "android:label=\"")
+            ? System.Text.RegularExpressions.Regex.Replace(tag, "android:label=\"[^\"]*\"", "android:label=\"" + AppDisplayName + "\"")
+            : tag.Insert(tag.Length - 1, " android:label=\"" + AppDisplayName + "\"");
+        if (patched == tag) {
+            return;
+        }
+        File.WriteAllText(manifestPath, text.Substring(0, app.Index) + patched + text.Substring(app.Index + tag.Length));
+        Debug.Log("[SoloChaquopy] 应用名已写入 AndroidManifest: " + AppDisplayName);
     }
 
     private const string ChaquopyPluginId = "com.chaquo.python";

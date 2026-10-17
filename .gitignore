@@ -21,6 +21,8 @@
 !/open_mahjong_unity/README.md
 # 单机版内嵌 Python 服务端源码（Chaquopy 打包进 APK，随构建注入 Gradle 工程）
 !/open_mahjong_unity/SoloPython/
+# 单机版应用图标源文件（构建时注入 Android res/mipmap-*）
+!/open_mahjong_unity/SoloIcon/
 /open_mahjong_unity/Assets/Resources/PerformanceTestRunInfo.json*
 /open_mahjong_unity/Assets/Resources/PerformanceTestRunSettings.json*
 
