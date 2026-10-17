@@ -79,6 +79,11 @@ public partial class NormalGameStateManager {
 
         // 族开局：从 GameInfo 读自己的字段、恢复自己的桌面表现（立直棒、定缺标记、分数配置……）
         RuleRegistry.ActiveGameState?.OnGameStart(gameInfo);
+
+        // 单机诊断：走到这里说明开局全流程无异常；若缺少本行，则中途某步抛异常（见「消息处理错误」）。
+        if (ConfigManager.SoloMode) {
+            Debug.Log("[Solo] InitializeGame 完成");
+        }
     }
 
     // 生成其他玩家的3D卡牌（弃牌、副露、花牌）
