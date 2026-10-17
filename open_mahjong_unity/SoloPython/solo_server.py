@@ -311,6 +311,35 @@ async def _stop_solo_game(server: SoloServer):
     server.gamestate_manager._game = None
 
 
+async def _run_game_loop(server: SoloServer, state) -> None:
+    """包一层，把对局循环的异常暴露出来。
+
+    引擎循环由 ``create_task`` 启动，其异常不会自动上报：一旦它在第一帧就死掉，
+    客户端会连一份 game_start 都收不到，表现为「点了开始游戏毫无反应」。
+    """
+    _note("对局循环已启动")
+    try:
+        await state.run_game_loop()
+        _note("对局循环正常结束")
+    except asyncio.CancelledError:
+        _note("对局循环被取消")
+        raise
+    except Exception as exc:
+        reason = "%s: %s" % (type(exc).__name__, exc)
+        logger.exception("单机对局循环异常退出")
+        _note("!! 对局循环异常退出: " + reason)
+        conn = server.user_id_to_connection.get(HUMAN_USER_ID)
+        if conn is not None:
+            try:
+                await conn.send_json({
+                    "type": "error_message",
+                    "success": False,
+                    "message": "单机对局启动失败: " + reason,
+                })
+            except Exception:
+                pass
+
+
 async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
     async with server._start_lock:
         # 每次开局都先结束上一局，保证客户端总能收到一份新的 game_start
@@ -329,7 +358,7 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
 
         server._game = state
         server.gamestate_manager._game = state
-        state.game_task = asyncio.create_task(state.run_game_loop())
+        state.game_task = asyncio.create_task(_run_game_loop(server, state))
         logger.info("单机杭州对局已启动 gamestate_id=%s 玩家=%s",
                     state.gamestate_id, room_data["player_list"])
         _note("已开局 gamestate_id=" + str(state.gamestate_id))

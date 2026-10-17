@@ -5,6 +5,11 @@ using UnityEngine;
 public partial class NormalGameStateManager {
     // 初始化游戏
     public void InitializeGame(bool success, string message, GameInfo gameInfo){
+        // 单机诊断：确认 game_start 确实走到了这里，以及成败
+        if (ConfigManager.SoloMode) {
+            Debug.Log($"[Solo] InitializeGame 进入 gameInfo={(gameInfo != null)} " +
+                      $"gamestateId={gameInfo?.gamestate_id} success={success}");
+        }
         lastAskHandPlayerIndex = -1;
         // 新对局（gamestate_id 变化）才清空本地结算快照；同一场对局的下一局 game_start 不应清空，
         // 否则会抹掉已累积的主番快照（国标每局都会广播 game_start），导致计分板主番列整列变 —。
@@ -23,11 +28,13 @@ public partial class NormalGameStateManager {
 
         gamestateId = gameInfo.gamestate_id;
         // 0.切换窗口
+        if (ConfigManager.SoloMode) Debug.Log("[Solo] InitializeGame 准备切窗口");
         MatchStateManager.Instance.StopQueueing();
         MatchNetworkManager.Instance.ResetMatchLock();
 
         MatchFoundedPanel.Instance?.StopCountdownAndHide();
         GameHost.Current.SwitchWindow("game"); // 切换到游戏场景
+        if (ConfigManager.SoloMode) Debug.Log("[Solo] InitializeGame 已切到 game 窗口");
 
         Game3DManager.Instance.Clear3DTile(); // 清空3D手牌
 
