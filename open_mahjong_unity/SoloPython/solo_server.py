@@ -36,6 +36,11 @@ HUMAN_USER_ID = 101
 HUMAN_USERNAME = "我"
 BOT_USER_IDS = [1, 2, 3]
 
+# 单机房间标识：客户端建房/开局复用线上 `room/*` 协议，本地唯一房间用固定 id 表示。
+SOLO_ROOM_ID = "solo-hangzhou"
+SOLO_INSTANCE_ID = "solo-instance-1"
+BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特"}
+
 
 # ----------------------------------------------------------------------------
 # 极简 WebSocket 服务端（RFC6455 子集）
@@ -174,6 +179,8 @@ class SoloServer:
         self.calculation_service = None
         self.gamestate_manager = _GameStateManagerStub()
         self._game = None
+        self._room = None        # 当前单机房间的 room_info；None 表示尚未建房
+        self._room_opts = {}     # 建房时选定的开局参数（局数等）
         self._start_lock = asyncio.Lock()
 
 
@@ -195,6 +202,96 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
         random_seed=0,
         bot_speed="normal",
     )
+
+
+def _player_settings() -> dict:
+    """房间 4 个座位（1 真人 + 3 机器人）的展示信息，客户端用其中的 username 渲染座位名。"""
+    settings = {
+        str(HUMAN_USER_ID): {
+            "user_id": HUMAN_USER_ID, "username": HUMAN_USERNAME,
+            "title_id": 1, "profile_image_id": 1, "character_id": 1,
+            "voice_id": 1, "avatar_frame_id": 0,
+        }
+    }
+    for bot_id in BOT_USER_IDS:
+        settings[str(bot_id)] = {
+            "user_id": bot_id, "username": BOT_USERNAMES.get(bot_id, f"机器人{bot_id}"),
+            "title_id": 1, "profile_image_id": 1, "character_id": 1,
+            "voice_id": 1, "avatar_frame_id": 0,
+        }
+    return settings
+
+
+def _build_room_info(rounds: int, room_name: str = "", password: str = "") -> dict:
+    """客户端 RoomPanel 需要的 room_info。
+
+    直接放入 1 真人 + 3 机器人：客户端把 user_id<=10 视为机器人且默认「已准备」，
+    房主无需手动加机器人，人数一满「开始游戏」即可点击。
+    """
+    players = [HUMAN_USER_ID] + BOT_USER_IDS
+    return {
+        "room_id": SOLO_ROOM_ID,
+        "instance_id": SOLO_INSTANCE_ID,
+        "room_type": "custom",
+        "room_rule": "hangzhou",
+        "sub_rule": "hangzhou/mil2025",
+        "hepai_limit": 0,
+        "tourist_limit": False,
+        "allow_spectator": False,
+        "max_player": 4,
+        "player_list": players,
+        "seat_list": players,
+        "ready_list": [],
+        "player_settings": _player_settings(),
+        "has_password": bool(password),
+        "tips": True,
+        "count_tips": False,
+        "pointer_tips": True,
+        "host_name": HUMAN_USERNAME,
+        "host_user_id": HUMAN_USER_ID,
+        "room_name": room_name or "单机杭州麻将",
+        "game_round": rounds,
+        "round_timer": 300,
+        "step_timer": 20,
+        "is_game_running": False,
+        "bot_speed": "fast",
+        "is_player_set_random_seed": False,
+        "open_cuohe": False,
+        "cuohe_type": 0,
+        "show_moqie_hint": False,
+        "tactical_call": False,
+        "claim_protection": False,
+        "use_flowers": False,
+        "tian_di_ren_he": False,
+        "is_duplicate": False,
+        "duplicate_round_count": 0,
+        "wall_wan": True,
+        "wall_tong": True,
+        "wall_suo": True,
+        "wall_winds": True,
+        "wall_dragons": True,
+        "wall_flowers": False,
+    }
+
+
+async def _broadcast_room_info(server: SoloServer, conn: WsConnection):
+    """把最新 room_info 推给客户端，触发 RoomPanel 刷新。"""
+    if server._room is None:
+        return
+    await _send(conn, {"type": "room/refresh_room_info", "success": True,
+                       "message": "", "room_info": server._room})
+
+
+async def _stop_solo_game(server: SoloServer):
+    """离开房间时结束正在跑的对局引擎，允许重新建房开局。"""
+    game = server._game
+    if game is None:
+        return
+    task = getattr(game, "game_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+    server._game = None
+    server.gamestate_manager._game = None
 
 
 async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
@@ -264,6 +361,63 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         if message.get("round_timer") is not None:
             opts["round_timer"] = int(message["round_timer"])
         await start_solo_game(server, conn, **opts)
+        return
+
+    # ---- 房间协议：复用线上建房/开局流程，让大厅「创建房间 → 开始游戏」可用 ----
+    if mtype == "room/get_room_list":
+        await _send(conn, {"type": "room/get_room_list", "success": True, "message": "",
+                           "room_list": [], "show_tip": bool(message.get("show_tip"))})
+        return
+
+    if mtype == "room/create_Hangzhou_room":
+        rounds = int(message.get("gameround") or 4)
+        server._room_opts = {"rounds": rounds}
+        server._room = _build_room_info(rounds, room_name=message.get("roomname", ""),
+                                        password=message.get("password", ""))
+        logger.info("已创建单机房间 %s，玩家=%s", SOLO_ROOM_ID, server._room["player_list"])
+        await _send(conn, {"type": "room/create_room_done", "success": True,
+                           "message": "房间创建成功", "room_info": server._room})
+        return
+
+    if mtype.startswith("room/create_"):
+        # 单机内嵌的引擎只实现了杭州麻将，其它规则直接拒绝
+        await _send(conn, {"type": "room/create_room_done", "success": False,
+                           "message": "单机版仅支持杭州麻将"})
+        return
+
+    if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot",
+                 "room/kick_player", "room/set_ready", "room/set_claim_protection"):
+        # 房间已是满座（1 真人 + 3 机器人），这些操作只需回推最新座位状态
+        await _broadcast_room_info(server, conn)
+        return
+
+    if mtype == "room/set_bot_speed":
+        if server._room is not None:
+            server._room["bot_speed"] = message.get("bot_speed") or server._room.get("bot_speed", "fast")
+        await _broadcast_room_info(server, conn)
+        return
+
+    if mtype == "room/start_game":
+        if server._room is not None:
+            server._room["is_game_running"] = True
+        await start_solo_game(server, conn, **server._room_opts)
+        return
+
+    if mtype == "room/leave_room":
+        await _stop_solo_game(server)
+        server._room = None
+        server._room_opts = {}
+        await _send(conn, {"type": "room/leave_room_done", "success": True,
+                           "message": "离开房间成功", "room_id": message.get("room_id", SOLO_ROOM_ID),
+                           "room_instance_id": SOLO_INSTANCE_ID})
+        return
+
+    if mtype == "room/sync_my_room":
+        if server._room is not None:
+            await _broadcast_room_info(server, conn)
+        else:
+            await _send(conn, {"type": "room/sync_not_in_room", "success": True,
+                               "message": "当前不在房间中"})
         return
 
     if mtype.startswith("gamestate/"):
