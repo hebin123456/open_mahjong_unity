@@ -81,14 +81,14 @@ jobs:
           unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
           targetPlatform: Android
           androidExportType: androidPackage
-          androidAppBundle: false
           allowDirtyBuild: true
           # 固定签名 keystore，保证各次构建、覆盖安装签名一致
-          keystoreName: openmahjong.keystore
-          keystoreBase64: ${{ env.KEYSTORE_B64 }}
-          keystorePass: ${{ env.KEYSTORE_PASS }}
-          keystoreAlias: ${{ env.KEYSTORE_ALIAS }}
-          keystoreAliasPass: ${{ env.KEYSTORE_PASS }}
+          # （v4 输入名必须用 androidKeystore*/androidKeyalias* 前缀，否则被当作未知输入忽略）
+          androidKeystoreName: openmahjong.keystore
+          androidKeystoreBase64: ${{ env.KEYSTORE_B64 }}
+          androidKeystorePass: ${{ env.KEYSTORE_PASS }}
+          androidKeyaliasName: ${{ env.KEYSTORE_ALIAS }}
+          androidKeyaliasPass: ${{ env.KEYSTORE_PASS }}
           # 固定产物名，避免改动 productName（应用显示名）时改变 APK 文件名、影响 release 下载链接
           buildName: Android
           versioning: None
