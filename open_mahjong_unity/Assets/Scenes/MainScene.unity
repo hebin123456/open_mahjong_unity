@@ -494107,7 +494107,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &879780161
 RectTransform:
   m_ObjectHideFlags: 0
@@ -672349,7 +672349,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1188732032
 RectTransform:
   m_ObjectHideFlags: 0
@@ -1205627,7 +1205627,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "open_mahjong_unity\u662F\u4E00\u6B3E\u57FA\u4E8Eunity/python-fastapi\u7684\u9EBB\u5C06\u5E73\u53F0\u9879\u76EE\uFF0C\u8BE5\u9879\u76EE\u9075\u5FAAMIT\u8BB8\u53EF\u534F\u8BAE\u3001\u514D\u8D39\u3001\u5F00\u6E90\u3001\u652F\u6301PC/\u5B89\u5353/ios\u4E09\u7AEF\u4E92\u901A\uFF1B\u76EE\u6807\u662F\u652F\u6301\u6240\u6709\u9EBB\u5C06\u89C4\u5219\u3001\u5E76\u4E14\u63D0\u4F9B\u7ED9\u73A9\u5BB6\u81EA\u5B9A\u4E49\u89C4\u5219\u7684\u9009\u9879\u3002\u6B22\u8FCE\u52A0\u5165q\u7FA4906497522\u53C2\u4E0E\u8BA8\u8BBA\u3001\u534F\u52A9\u548C\u6D4B\u8BD5\u3002"
+  # 已按需求改为单机版介绍；恢复时删除下一行并取消本行注释：
+# m_text: "open_mahjong_unity\u662F\u4E00\u6B3E\u57FA\u4E8Eunity/python-fastapi\u7684\u9EBB\u5C06\u5E73\u53F0\u9879\u76EE\uFF0C\u8BE5\u9879\u76EE\u9075\u5FAAMIT\u8BB8\u53EF\u534F\u8BAE\u3001\u514D\u8D39\u3001\u5F00\u6E90\u3001\u652F\u6301PC/\u5B89\u5353/ios\u4E09\u7AEF\u4E92\u901A\uFF1B\u76EE\u6807\u662F\u652F\u6301\u6240\u6709\u9EBB\u5C06\u89C4\u5219\u3001\u5E76\u4E14\u63D0\u4F9B\u7ED9\u73A9\u5BB6\u81EA\u5B9A\u4E49\u89C4\u5219\u7684\u9009\u9879\u3002\u6B22\u8FCE\u52A0\u5165q\u7FA4906497522\u53C2\u4E0E\u8BA8\u8BBA\u3001\u534F\u52A9\u548C\u6D4B\u8BD5\u3002"
+  m_text: "\u5355\u673A\u7248\u9EBB\u5C06\u6E38\u620F\uFF0C\u652F\u6301\u591A\u79CD\u89C4\u5219\uFF0C\u795D\u73A9\u5F97\u5F00\u5FC3\uFF01"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae11b662bda1504e8546327cf07ae25, type: 2}
   m_sharedMaterial: {fileID: -7501245431862323401, guid: bae11b662bda1504e8546327cf07ae25, type: 2}
