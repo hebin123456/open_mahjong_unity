@@ -25,6 +25,10 @@ public sealed class HangzhouGameState : TurnBasedGameState {
             var hand = Mirror.SelfHandTiles.ToArray();
             GameCanvas.Instance.ChangeHandCards("SyncHandCards", 0, hand.Take(hand.Length - 1).ToArray(), null);
             GameCanvas.Instance.ChangeHandCards("GetCardNoAnimation", hand[hand.Length - 1], null, null);
+        } else {
+            // InitHandCards 在 InitializeGame 中先于本 Accept 执行，财标/排序键读的是上一副
+            // Info（第一副为 null）；庄家已由上面的 SyncHandCards 重建，闲家在此重算角标。
+            GameCanvas.Instance?.RefreshHandRuleBadges();
         }
         // Restore player and spectator tips only after their authoritative cache is loaded.
         // A real draw is removed only from the query copy, never from the physical mirror.

@@ -24,6 +24,19 @@ public partial class GameCanvas{
         }
     }
 
+    /// <summary>
+    /// 开局手牌先于规则 Accept 创建（InitializeGame 中 InitHandCards 早于 OnGameStart），
+    /// 财标按上一副 Info 计算；庄家走 SyncHandCards 重建天然正确，闲家在 Accept 后
+    /// 统一重算。只重刷角标显示，不改手牌顺序、拖拽与摸牌位。
+    /// </summary>
+    public void RefreshHandRuleBadges() {
+        if (handCardsContainer == null) return;
+        for (int i = 0; i < handCardsContainer.childCount; i++) {
+            TileCard card = handCardsContainer.GetChild(i).GetComponent<TileCard>();
+            if (card != null) card.RefreshVisual();
+        }
+    }
+
     // 处理手牌队列
     private IEnumerator ProcessChangeHandCardQueue(){
         // 手牌处理运行

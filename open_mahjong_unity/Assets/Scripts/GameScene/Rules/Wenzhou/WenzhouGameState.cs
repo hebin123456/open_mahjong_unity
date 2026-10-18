@@ -36,6 +36,10 @@ public sealed class WenzhouGameState : TurnBasedGameState {
             var tiles = Mirror.SelfHandTiles.ToArray();
             GameCanvas.Instance.ChangeHandCards("SyncHandCards", 0, tiles.Take(tiles.Length - 1).ToArray(), null);
             GameCanvas.Instance.ChangeHandCards("GetCardNoAnimation", tiles[tiles.Length - 1], null, null);
+        } else {
+            // 与杭州族同理：InitHandCards 先于本 Accept 执行，财标按上一副 Info 计算，
+            // 闲家不重建手牌，这里重算角标。
+            GameCanvas.Instance?.RefreshHandRuleBadges();
         }
     }
     protected override void OnAskHandAction(Response response) {
