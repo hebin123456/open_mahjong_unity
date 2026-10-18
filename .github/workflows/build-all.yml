@@ -1,0 +1,294 @@
+name: Build All Platforms (Android + Windows + iOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      unityVersion:
+        description: 'Unity version (override only if the GameCI editor image is missing)'
+        required: false
+        default: '6000.4.7f1'
+      releaseTag:
+        description: 'Release tag to publish artifacts to (default: latest)'
+        required: false
+        default: 'latest'
+  push:
+    branches: [ feat/offline-hangzhou ]
+    paths:
+      - 'open_mahjong_unity/**'
+      - '.github/workflows/build-all.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-Android-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-Android-
+            Library-
+
+      - name: Build Android APK
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+          targetPlatform: Android
+          androidExportType: androidPackage
+          androidAppBundle: false
+          allowDirtyBuild: true
+          # 固定产物名，避免改动 productName（应用显示名）时改变 APK 文件名、影响 release 下载链接
+          buildName: Android
+          versioning: None
+          buildsPath: build
+
+      - name: Collect APK
+        run: |
+          echo "Found .apk files:"
+          find build -type f -iname '*.apk' -print
+          APK="$(find build -type f -iname '*.apk' | sort | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "::error::No .apk file found under build/"
+            exit 1
+          fi
+          cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
+          echo "APK: $APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ github.workspace }}/Android.apk
+
+  build-windows:
+    name: Build Windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Fetch embedded Python runtime
+        run: |
+          URL="https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
+          DEST="open_mahjong_unity/.cache/solo-python/python-3.10.11-embed-amd64"
+          mkdir -p "$DEST"
+          curl -fsSL "$URL" -o /tmp/python-embed.zip
+          unzip -q /tmp/python-embed.zip -d "$DEST"
+          test -f "$DEST/python.exe"
+          echo "Embedded Python ready at $DEST"
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-Windows-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-Windows-
+            Library-
+
+      - name: Build Windows
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+          targetPlatform: StandaloneWindows64
+          allowDirtyBuild: true
+          buildName: Windows
+          versioning: None
+          buildsPath: build
+
+      - name: Package Windows build
+        run: |
+          find build -maxdepth 3 -type f | head -n 60
+          # 只取构建根目录下的启动器 exe（排除 UnityCrashHandler 与 SoloRuntime 内嵌的 python.exe），
+          # 其所在目录即完整产物目录（含 *_Data、SoloRuntime、MonoBleedingEdge）
+          EXE="$(find build -maxdepth 2 -type f -iname '*.exe' \
+                 -not -iname 'UnityCrashHandler*' -not -ipath '*/SoloRuntime/*' | sort | head -n 1)"
+          if [ -z "$EXE" ]; then
+            echo "::error::No .exe file found under build/"
+            exit 1
+          fi
+          DIR="$(dirname "$EXE")"
+          echo "Packaging $DIR"
+          (cd "$DIR" && zip -r "$GITHUB_WORKSPACE/Windows.zip" .)
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: ${{ github.workspace }}/Windows.zip
+
+  export-xcode:
+    name: iOS - Unity -> Xcode Project
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-iOS-v2-${{ github.ref_name }}-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-iOS-v2-${{ github.ref_name }}-
+            Library-iOS-v2-
+
+      - name: Build iOS (export Xcode project)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+          targetPlatform: iOS
+          allowDirtyBuild: true
+          versioning: None
+          buildsPath: build
+
+      - name: Upload Xcode project
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-project
+          path: build/iOS
+          retention-days: 3
+
+  make-ipa:
+    name: iOS - Xcode -> Unsigned IPA
+    needs: export-xcode
+    runs-on: macos-15
+    steps:
+      - name: Download Xcode project
+        uses: actions/download-artifact@v4
+        with:
+          name: xcode-project
+          path: xcode
+
+      - name: Show project layout & schemes
+        run: |
+          ls -la xcode
+          xcodebuild -list -project xcode/iOS/Unity-iPhone.xcodeproj || true
+
+      - name: Allow plain HTTP (ATS) in Info.plist
+        run: |
+          PLIST=$(find xcode -maxdepth 3 -name Info.plist | head -n 1)
+          echo "Info.plist: $PLIST"
+          if [ -n "$PLIST" ] && [ -f "$PLIST" ]; then
+            plutil -remove NSAppTransportSecurity "$PLIST" 2>/dev/null || true
+            plutil -insert NSAppTransportSecurity -xml '<dict><key>NSAllowsArbitraryLoads</key><true/></dict>' "$PLIST"
+            echo "ATS patched:"
+            plutil -p "$PLIST" | grep -A2 NSAppTransportSecurity || true
+          else
+            echo "Info.plist not found, skipping ATS patch"
+          fi
+
+      - name: Build unsigned .app
+        run: |
+          set -euo pipefail
+          PROJ=$(find xcode -maxdepth 3 -name '*.xcodeproj' | head -n 1)
+          echo "Project: $PROJ"
+          SCHEME="Unity-iPhone"
+          if ! xcodebuild -list -project "$PROJ" | grep -q "Unity-iPhone"; then
+            SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f&&$1{print $1; exit}')
+          fi
+          echo "Scheme: $SCHEME"
+          xcodebuild -project "$PROJ" -scheme "$SCHEME" \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -n 40
+          APP=$(find dd/Build/Products -type d -name '*.app' | head -n 1)
+          echo "APP: $APP"
+          test -n "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry Unsigned.ipa Payload
+          ls -lh Unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: Unsigned.ipa
+          retention-days: 30
+
+  publish:
+    name: Publish Release
+    needs: [ build-android, build-windows, make-ipa ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: '^(android-apk|windows-package|unsigned-ipa)$'
+          merge-multiple: true
+
+      - name: Publish to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
+          ls -R artifacts
+          echo "Publishing to release '$TAG'"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" \
+            --title "单机版 + iOS 未签名包 ($TAG)" \
+            --notes "自动构建 · run #${{ github.run_number }} · commit ${GITHUB_SHA:0:8} · Unity ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+
+          - Android.apk：安卓安装包
+          - Windows.zip：Windows 解压运行
+          - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
+            "artifacts/Android.apk" \
+            "artifacts/Windows.zip" \
+            "artifacts/Unsigned.ipa"
