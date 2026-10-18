@@ -47,6 +47,26 @@ jobs:
             Library-Android-
             Library-
 
+      - name: Prepare Android signing
+        env:
+          KS_B64_SECRET: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_B64_SECRET" ]; then
+            # 优先使用仓库 secrets 里的正式 keystore
+            printf '%s' "$KS_B64_SECRET" | base64 -d > /tmp/openmahjong.keystore
+            echo "KEYSTORE_B64=$KS_B64_SECRET" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASS=${{ secrets.ANDROID_KEYSTORE_PASS }}" >> "$GITHUB_ENV"
+            echo "KEYSTORE_ALIAS=${{ secrets.ANDROID_KEYSTORE_ALIAS }}" >> "$GITHUB_ENV"
+            echo "Using keystore from secrets"
+          else
+            # 回退：使用入库 keystore（私有仓库内部使用，保证所有构建签名一致）
+            B64="$(base64 -w0 open_mahjong_unity/ProjectSettings/Keystore/openmahjong.keystore)"
+            echo "KEYSTORE_B64=$B64" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASS=openmahjong2025" >> "$GITHUB_ENV"
+            echo "KEYSTORE_ALIAS=openmahjong" >> "$GITHUB_ENV"
+            echo "Using in-repo keystore"
+          fi
+
       - name: Build Android APK
         uses: game-ci/unity-builder@v4
         env:
@@ -60,6 +80,12 @@ jobs:
           androidExportType: androidPackage
           androidAppBundle: false
           allowDirtyBuild: true
+          # 固定签名 keystore，保证各次构建、覆盖安装签名一致
+          keystoreName: openmahjong.keystore
+          keystoreBase64: ${{ env.KEYSTORE_B64 }}
+          keystorePass: ${{ env.KEYSTORE_PASS }}
+          keystoreAlias: ${{ env.KEYSTORE_ALIAS }}
+          keystoreAliasPass: ${{ env.KEYSTORE_PASS }}
           # 固定产物名，避免改动 productName（应用显示名）时改变 APK 文件名、影响 release 下载链接
           buildName: Android
           versioning: None
@@ -75,7 +101,14 @@ jobs:
             exit 1
           fi
           cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
-          echo "APK: $APK"
+          echo "APK: $APK ($(stat -c%s "$APK") bytes)"
+          sha256sum "$GITHUB_WORKSPACE/Android.apk"
+          # 打印签名证书指纹，便于与已安装版本比对排查签名冲突
+          if keytool -printcert -jarfile "$GITHUB_WORKSPACE/Android.apk" >/tmp/cert.txt 2>&1; then
+            grep -E 'SHA256|Owner|Valid' /tmp/cert.txt | head -4
+          else
+            echo "::warning::keytool could not read signing cert (v1 absent); APK may be v2-only signed"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
