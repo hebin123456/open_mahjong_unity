@@ -111,9 +111,52 @@ public static class TileIdOrder {
 
     // 组排名占高位、组内排序值占低位。字牌组内：风牌 0-3，三元牌 10+dragonRank。
     private static int SortKey(int tile) {
+        // 萧山翻财排列：翻出的财神实体（万能牌）独立排最右；白板按其顶替的财神本牌排序，
+        // 即白板插入到财神牌原本的位置，而财神牌不再占据本牌序列、移到手牌独立位置。
+        if (TryGetXiaoshanJoker(out int joker)) {
+            if (tile == joker) return int.MaxValue;
+            if (tile == Haku) return BaseKey(joker);
+        }
+        return BaseKey(tile);
+    }
+
+    // 无翻财调整的基础排序键。
+    private static int BaseKey(int tile) {
         int suit = SuitOf(tile);
         int inner = suit == 3 ? HonorSortValue(tile) : Normalize(tile);
         return groupRank[suit] * 1000 + inner;
+    }
+
+    /// <summary>
+    /// 萧山翻财上下文：返回翻出的财神牌 id。对局取杭州引擎投影（rule_version 以 xiaoshan
+    /// 开头才翻财，杭州恒白板不在此列）；牌谱回放按 game_title 的 rule/sub_rule 与 joker_tiles
+    /// （服务端记录的 joker_tiles 恰为翻出的那张）。
+    /// </summary>
+    private static bool TryGetXiaoshanJoker(out int joker) {
+        joker = 0;
+        HangzhouInfo info = HangzhouGameState.Active?.Info;
+        if (info != null) {
+            if (info.joker_indicator > 0 && info.rule_version != null && info.rule_version.StartsWith("xiaoshan")) {
+                joker = info.joker_indicator;
+                return true;
+            }
+            return false;
+        }
+        if (TryGetRecordRule(out string recordRule, out string recordSubRule)
+                && (recordRule == "xiaoshan" || (recordSubRule != null && recordSubRule.StartsWith("xiaoshan")))) {
+            Dictionary<string, object> gameTitle = GameRecordManager.Instance.gameRecord?.gameTitle;
+            if (gameTitle != null && gameTitle.TryGetValue("joker_tiles", out object tilesObj) && tilesObj != null
+                    && tilesObj is System.Collections.IEnumerable list && !(tilesObj is string)) {
+                foreach (object item in list) {
+                    // 服务端记录的 joker_tiles 恰为翻出的那张，取首个即可。
+                    if (item != null && int.TryParse(item.ToString(), out joker)) {
+                        return true;
+                    }
+                    break;
+                }
+            }
+        }
+        return false;
     }
 
     private static int HonorSortValue(int tile) {
