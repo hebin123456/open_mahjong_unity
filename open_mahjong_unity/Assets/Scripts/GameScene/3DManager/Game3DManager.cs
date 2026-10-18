@@ -172,6 +172,51 @@ public partial class Game3DManager : MonoBehaviour {
         return _claimTileGlow;
     }
 
+    // 中心桌面翻出的财神实体牌：萧山每副开局翻财展示，Clear3DTile 时回收。
+    private GameObject jokerIndicatorTile;
+
+    /// <summary>桌面中心点：优先中心盘节点，否则取四家河牌区锚点的平均位置。</summary>
+    private Vector3 TableCenterPosition() {
+        if (BoardCanvas.Instance != null) {
+            Transform center = BoardCanvas.Instance.transform.Find("ControlPanel -1");
+            if (center != null) return center.position;
+        }
+        if (selfPosPanel != null && leftPosPanel != null && topPosPanel != null && rightPosPanel != null
+            && selfPosPanel.discardsPosition != null && leftPosPanel.discardsPosition != null
+            && topPosPanel.discardsPosition != null && rightPosPanel.discardsPosition != null) {
+            return (selfPosPanel.discardsPosition.position + leftPosPanel.discardsPosition.position
+                + topPosPanel.discardsPosition.position + rightPosPanel.discardsPosition.position) * 0.25f;
+        }
+        return transform.position;
+    }
+
+    /// <summary>
+    /// 把本副翻出的财神以实体牌摆到桌面中心（正面朝上，朝向自家玩家）。
+    /// joker_indicator <= 0（如杭州恒白板，无翻财）时不摆；重复调用先回收旧牌。
+    /// </summary>
+    public void ShowJokerIndicatorTile(int tileId) {
+        ClearJokerIndicatorTile();
+        if (tileId <= 0) return;
+        Quaternion rotation = RiverTileWorldRotation("self");
+        Vector3 position = PlaceTileOnTable(TableCenterPosition(), rotation);
+        GameObject cardObj = MahjongObjectPool.Instance.Spawn(tileId, position, rotation);
+        if (cardObj == null) {
+            Debug.LogError($"无法从对象池获取翻财展示牌: {tileId}");
+            return;
+        }
+        cardObj.name = "JokerIndicatorTile";
+        cardObj.transform.SetParent(transform, worldPositionStays: true);
+        Card3DHoverManager.Instance.RegisterCard(cardObj, tileId);
+        jokerIndicatorTile = cardObj;
+    }
+
+    /// <summary>回收中心翻财实体牌（归还对象池并解除悬停登记）。</summary>
+    private void ClearJokerIndicatorTile() {
+        if (jokerIndicatorTile == null) return;
+        MahjongObjectPool.Instance.Return(-1, jokerIndicatorTile);
+        jokerIndicatorTile = null;
+    }
+
     /// <summary>在所有登记中找“最新”且（可选）牌张匹配的可操作牌对象。</summary>
     private GameObject FindLatestClaimTarget(int expectedTileId) {
         string bestPos = null;
@@ -912,6 +957,7 @@ public partial class Game3DManager : MonoBehaviour {
     public void Clear3DTile(){
         ClearChangshaOpenKongTilesImmediate();
         ClearAllLastDiscardAndJiagang();
+        ClearJokerIndicatorTile();
         // 重置组合牌指针
         selfSetCombinationsPoint = selfPosPanel.combinationsPosition.position;
         leftSetCombinationsPoint = leftPosPanel.combinationsPosition.position;

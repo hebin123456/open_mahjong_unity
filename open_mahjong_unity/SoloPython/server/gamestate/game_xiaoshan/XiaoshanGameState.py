@@ -2,8 +2,10 @@
 
 整套动作/流程/协议/结算栈复用 ``HangzhouGameState``，仅覆盖萧山差异：
 
-- 财神翻出：四家抓完牌后翻出牌墙所剩的那张牌为财神，白板顶替该牌，二者皆可
-  代替任意牌（供两人及以上受用）。
+- 翻财：四家抓完牌后翻出牌墙所剩的那张牌为财神，场上同种财神只剩 3 张；
+  只有该牌本身是万能牌，白板不是万能牌，而是固定顶替该牌的本牌（翻出
+  一万则白板当一万用）；翻出白板时白板即财神。财神实体不可吃碰杠，白板
+  按本牌身份可正常吃碰杠（``joker_natural_map`` 提供固定映射）。
 - 打出财神后他家仍可正常吃、碰、杠（``cai_lock_on_discard = False``）。
 - 番种倍率相乘而非相加取 2^n（见 ``game_calculation/xiaoshan/rules.py``）。
 - 承包：一位玩家从另一位玩家处累计吃、碰三次即形成承包关系（按牌手身份跨局累计）。
@@ -11,17 +13,19 @@
 - 流局庄家留任且连庄倍数不递增。
 """
 
+import asyncio
 from dataclasses import replace
 
 from ..game_hangzhou.HangzhouGameState import HangzhouGameState
 from ..game_hangzhou.state_machine import Phase as P
 from ...game_calculation.hangzhou.rules import JOKER, WinContext
 from ...game_calculation.xiaoshan import rules as xs
+from .flow import XiaoshanHandFlow
 
 _CLAIM_ACTIONS = ("chi_left", "chi_mid", "chi_right", "peng")
 
 
-class XiaoshanGameState(HangzhouGameState):
+class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
     ROOM_RULE = "xiaoshan"
     SUB_RULE_ID = xs.SUB_RULE
     RULE_VERSION_ID = xs.RULE_VERSION
@@ -49,9 +53,30 @@ class XiaoshanGameState(HangzhouGameState):
     # ---- 财神翻出 -------------------------------------------------------
     def initialize_round(self, *, wall=None):
         super().initialize_round(wall=wall)
-        # 四家抓完牌后，翻出牌墙所剩的那张牌为财神；白板恒为财神，二者皆可替代。
+        # 四家抓完牌后，翻出牌墙所剩的那张牌为财神（场上同种仅剩 3 张）；
+        # 白板固定顶替该牌的本牌身份，不是万能牌；翻出白板时白板即财神。
         self.joker_indicator = self.tiles_list.pop(0)
-        self.jokers = tuple(sorted({JOKER, self.joker_indicator}))
+        self.jokers = (self.joker_indicator,)
+        self.joker_natural_map = ((JOKER, self.joker_indicator),) if self.joker_indicator != JOKER else ()
+        self.joker_physical_limits = ((self.joker_indicator, 3),)
+
+    def _meld_frames(self, player):
+        """副露码与掩码实体对齐，供计分层精确校验白板顶替。"""
+        return tuple((code, tuple(mask[1::2]))
+                     for code, mask in zip(player.combination_tiles, player.combination_mask))
+
+    def waiting_tiles_for(self, hand, melds, physicals=()):
+        return xs.waiting_tiles(hand, xs.meld_frames(melds, physicals), self.joker_indicator)
+
+    def schedule_bot_actions(self):
+        from .bot import play_bot
+        for index in self.waiting_players_list:
+            if not self.player_list[index].is_bot or self.bot_action_ticks.get(index) == self.server_action_tick:
+                continue
+            self.bot_action_ticks[index] = self.server_action_tick
+            task = asyncio.create_task(play_bot(self, index, self.server_action_tick))
+            self.bot_tasks.add(task)
+            task.add_done_callback(self.bot_tasks.discard)
 
     # ---- 承包关系累计 ---------------------------------------------------
     def _event(self, action, actor, **fields):
@@ -77,7 +102,7 @@ class XiaoshanGameState(HangzhouGameState):
     # ---- 计分（倍率相乘） ----------------------------------------------
     def score_ten_winds_for(self, hand, discard_history, melds, had_meld_action=False):
         return xs.score_ten_winds(hand, discard_history, melds,
-                                  had_meld_action=had_meld_action, jokers=self.jokers,
+                                  had_meld_action=had_meld_action, joker=self.joker_indicator,
                                   total_cap=self.total_cap)
 
     def score_win(self, index, source, tile):
@@ -87,11 +112,11 @@ class XiaoshanGameState(HangzhouGameState):
                                             p.combination_tiles, p.had_meld_action)
         if source != "self_draw":
             return None
-        return xs.evaluate_win(p.hand_tiles, p.combination_tiles, tile,
+        return xs.evaluate_win(p.hand_tiles, self._meld_frames(p), tile,
             WinContext(self_drawn=True, after_kong=p.after_kong,
                        cai_piao_count=p.cai_piao_count if p.drawn_after_cai else 0,
                        pre_draw_tiles=tuple(p.pre_draw_tiles)),
-            jokers=self.jokers, total_cap=self.total_cap)
+            joker=self.joker_indicator, total_cap=self.total_cap)
 
     def _is_tian_hu(self, winner):
         return (winner == self.dealer_index and not self.discard_log

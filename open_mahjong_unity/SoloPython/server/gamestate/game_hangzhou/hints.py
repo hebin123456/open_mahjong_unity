@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from ...game_calculation.hangzhou.rules import waiting_tiles
+from ...game_calculation.xiaoshan import rules as xs
 from .actions import legal_cuts
 from .state_machine import Phase as P
 
@@ -17,11 +18,19 @@ class HintRequest:
     cuts: tuple
     rule_version: str
     jokers: tuple = ()
+    physicals: tuple = ()
 
 
 @lru_cache(maxsize=1024)
-def _waits(hand, melds, jokers=()):
+def _waits(hand, melds, jokers=(), physicals=(), xiaoshan=False):
+    if xiaoshan:
+        return tuple(sorted(xs.waiting_tiles(hand, xs.meld_frames(melds, physicals),
+                                             jokers[0] if jokers else 46)))
     return tuple(sorted(waiting_tiles(hand, melds, jokers or (46,))))
+
+
+def _request_physicals(player):
+    return tuple(tuple(mask[1::2]) for mask in player.combination_mask)
 
 
 def current_request(state, index, *, for_record=False):
@@ -32,22 +41,24 @@ def current_request(state, index, *, for_record=False):
         return None
     return HintRequest(tuple(p.hand_tiles), tuple(p.combination_tiles),
                        tuple(sorted(legal_cuts(state, index))), state.rule_version,
-                       tuple(getattr(state, "jokers", (46,))))
+                       tuple(getattr(state, "jokers", (46,))), _request_physicals(p))
 
 
 @lru_cache(maxsize=256)
 def compute(request):
     """Worker-safe immutable output. Never receives a GameState or Player."""
     hand, melds = request.hand, request.melds
+    xiaoshan = request.rule_version.startswith("xiaoshan")
     waits, by_cut = (), ()
     if len(hand) + 3 * len(melds) == 13:
-        waits = _waits(tuple(sorted(hand)), melds, request.jokers)
+        waits = _waits(tuple(sorted(hand)), melds, request.jokers, request.physicals, xiaoshan)
     elif len(hand) + 3 * len(melds) == 14:
         rows = []
         for tile in request.cuts:
             remaining = list(hand)
             remaining.remove(tile)
-            rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers)))
+            rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers,
+                                      request.physicals, xiaoshan)))
         by_cut = tuple(rows)
     return waits, by_cut
 
@@ -83,8 +94,10 @@ def _snapshot_request(state, payload):
         return None
     hand = tuple(info["self_hand_tiles"])
     melds = tuple(info["players_info"][index]["combination_tiles"])
+    physicals = tuple(tuple(mask[1::2]) for mask in info["players_info"][index]["combination_mask"])
     cuts = ((hand[-1],) if info["self_has_draw_slot"] else ()) if public["forced_draw_discard"][index] else tuple(sorted(set(hand)))
-    return HintRequest(hand, melds, cuts, public["rule_version"], tuple(public.get("joker_tiles") or (46,)))
+    return HintRequest(hand, melds, cuts, public["rule_version"],
+                       tuple(public.get("joker_tiles") or (46,)), physicals)
 
 
 async def prepare(state, *, payloads=(), indices=()):

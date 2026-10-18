@@ -136,32 +136,44 @@ class WinScore:
                 "points": self.points, "fan_cap": FAN_CAP}
 
 
+def _pairs_arg(value):
+    """lru_cache 安全的成对参数：接受 (a, b) 序列或空。"""
+    return tuple(tuple(pair) for pair in value)
+
+
 @lru_cache(maxsize=8)
-def _policy(shapes=("standard", "seven_pairs"), jokers=(JOKER,)):
+def _policy(shapes=("standard", "seven_pairs"), jokers=(JOKER,), natural_map=(), physical_limits=()):
     from ..jokers import JokerPolicy
     # Unlike Guangdong/Hongzhong, this book imposes no logical four-copy cap.
     # The common core still validates the complete physical hand's supply.
-    return JokerPolicy(joker_tiles=jokers, meld_count=4, closed_cap=None, shapes=shapes)
+    # ``natural_map``/``physical_limits`` only serve derived rules (萧山翻财:
+    # 白板顶替翻出的财神且场上同种财神仅剩三张)；杭州默认保持空。
+    return JokerPolicy(joker_tiles=jokers, natural_map=_pairs_arg(natural_map),
+                       physical_limits=_pairs_arg(physical_limits),
+                       meld_count=4, closed_cap=None, shapes=shapes)
 
 
-def waiting_tiles(hand, melds=(), jokers=(JOKER,)):
+def waiting_tiles(hand, melds=(), jokers=(JOKER,), natural_map=(), physical_limits=()):
     """Physically obtainable draws that complete either allowed shape."""
     if _valid(hand, melds, False, jokers) is None:
         return set()
     from ..jokers import structural_waits
-    return set(structural_waits(hand, melds, _policy(jokers=tuple(jokers))))
+    policy = _policy(jokers=tuple(jokers), natural_map=_pairs_arg(natural_map),
+                     physical_limits=_pairs_arg(physical_limits))
+    return set(structural_waits(hand, melds, policy))
 
 
-def can_baotou(pre_draw_tiles, melds=(), jokers=(JOKER,)):
+def can_baotou(pre_draw_tiles, melds=(), jokers=(JOKER,), natural_map=()):
     """Book VIII-9: remove ONE wildcard from the actual hand before the draw."""
     if _valid(pre_draw_tiles, melds, False, jokers) is None or not any(t in tuple(jokers) for t in pre_draw_tiles):
         return False
     from ..jokers import can_form_melds, can_form_pairs
     remainder = list(pre_draw_tiles)
     remainder.remove(next(t for t in remainder if t in tuple(jokers)))
-    if can_form_melds(remainder, melds, _policy(jokers=tuple(jokers))):
+    policy = _policy(jokers=tuple(jokers), natural_map=_pairs_arg(natural_map))
+    if can_form_melds(remainder, melds, policy):
         return True
-    return not melds and can_form_pairs(remainder, 6, _policy(jokers=tuple(jokers)))
+    return not melds and can_form_pairs(remainder, 6, policy)
 
 
 def _luxury_pairs(hand, jokers=(JOKER,)):

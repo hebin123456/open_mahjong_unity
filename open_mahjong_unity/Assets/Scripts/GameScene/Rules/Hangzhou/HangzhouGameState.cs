@@ -19,6 +19,8 @@ public sealed class HangzhouGameState : TurnBasedGameState {
     protected override void OnRoundStarted(GameInfo info) {
         BindClockRound(info);
         Info = null; Hints.Reset(); Accept(info?.hangzhou_info);
+        // 萧山每副翻出的财神：以实体牌摆到桌面中心；杭州等不翻财规则不下发 indicator，不摆。
+        Game3DManager.Instance?.ShowJokerIndicatorTile(Info?.joker_indicator ?? 0);
         if (Info?.self_has_draw_slot == true && Mirror.SelfHandTiles.Count > 0) {
             var hand = Mirror.SelfHandTiles.ToArray();
             GameCanvas.Instance.ChangeHandCards("SyncHandCards", 0, hand.Take(hand.Length - 1).ToArray(), null);
