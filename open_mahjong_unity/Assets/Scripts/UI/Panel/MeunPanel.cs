@@ -22,15 +22,19 @@ public class MeunPanel : MonoBehaviour {
         if (matchEntryButton != null) {
             matchEntryButton.onClick.RemoveListener(GoToMatch);
             matchEntryButton.onClick.AddListener(GoToMatch);
+            // 单机版没有排位匹配大厅功能，隐藏主菜单上的匹配入口。
+            if (ConfigManager.SoloMode) matchEntryButton.gameObject.SetActive(false);
         }
     }
 
     private void OnEnable() {
         UpdateMatchPlayerCountText(0);
+        if (ConfigManager.SoloMode) return;
         NetworkPollingManager.Instance.StartMenuMatchPlayerCountPolling();
     }
 
     private void OnDisable() {
+        if (ConfigManager.SoloMode) return;
         NetworkPollingManager.Instance.StopMenuMatchPlayerCountPolling();
     }
 

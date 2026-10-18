@@ -67,6 +67,8 @@ public class HeaderPanel : MonoBehaviour {
         if (friendButton != null) friendButton.Button.onClick.AddListener(Friend);
         if (logoutButton != null) logoutButton.Button.onClick.AddListener(Logout);
 
+        ApplySoloModeVisibility();
+
         ConfigManager.OnLanguageChanged += RefreshHeaderLabels;
         UnreadBadgeStore.OnChanged += RefreshUnreadBadges;
         RefreshHeaderLabels();
@@ -77,6 +79,27 @@ public class HeaderPanel : MonoBehaviour {
         ConfigManager.OnLanguageChanged -= RefreshHeaderLabels;
         UnreadBadgeStore.OnChanged -= RefreshUnreadBadges;
         UserDataManager.Instance.OnRoomIdChanged -= RefreshButtonAppearance;
+    }
+
+    /// <summary>
+    /// 单机版只保留打牌相关入口（房间/设置/场景设置/关于我们），
+    /// 好友、观战、数据、牌谱、匹配、赛事&基地、通知、登出等大厅功能入口一律隐藏。
+    /// </summary>
+    private void ApplySoloModeVisibility() {
+        if (!ConfigManager.SoloMode) return;
+        SetNavActive(friendButton, false);
+        SetNavActive(spectatorButton, false);
+        SetNavActive(playerDataButton, false);
+        SetNavActive(recordButton, false);
+        SetNavActive(matchButton, false);
+        SetNavActive(eventButton, false);
+        SetNavActive(noticeButton, false);
+        SetNavActive(logoutButton, false);
+    }
+
+    private static void SetNavActive(HeaderButton button, bool active) {
+        if (button == null) return;
+        button.gameObject.SetActive(active);
     }
 
     /// <summary>
@@ -143,7 +166,7 @@ public class HeaderPanel : MonoBehaviour {
     }
 
     public void RefreshEventButtonVisibility() {
-        if (eventButton == null) return;
+        if (ConfigManager.SoloMode || eventButton == null) return;
         eventButton.gameObject.SetActive(true);
     }
 
@@ -151,7 +174,7 @@ public class HeaderPanel : MonoBehaviour {
     /// 确保排位匹配导航入口可见；登录成功后由 NetworkManager 调用。
     /// </summary>
     public void RefreshMatchButtonVisibility() {
-        if (matchButton == null) return;
+        if (ConfigManager.SoloMode || matchButton == null) return;
         matchButton.gameObject.SetActive(true);
     }
     private void Friend() {

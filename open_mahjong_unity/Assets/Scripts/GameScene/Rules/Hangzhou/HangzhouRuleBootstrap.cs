@@ -7,14 +7,27 @@ internal static class HangzhouRuleBootstrap {
     public const string Description = "MIL《杭州麻将（推广）竞赛规则（试行2025版）》：136张、十三张手牌，白板为财神，仅自摸。爆头、财飘、七对、十风，4番封顶，老庄2/4/8倍，三吃承包，墙尾20张流局。";
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     public static void Register() {
-        RuleNameDictionary.WholeName[HangzhouGameState.RuleId] = "杭州麻将";
-        RuleNameDictionary.WholeName[HangzhouGameState.SubRule] = "MIL 杭州（2025）";
-        RuleNameDictionary.ShortName[HangzhouGameState.RuleId] = "杭州";
-        RuleNameDictionary.ShortName[HangzhouGameState.SubRule] = "杭州";
+        RegisterVariant(HangzhouGameState.RuleId, HangzhouGameState.SubRule, "杭州麻将", "MIL 2025", "MIL 杭州（2025）", "杭州", 12);
+        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_piao", Kind = ActionWordKind.Other, Label = _ => "飘" });
+        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_tail_burn", Kind = ActionWordKind.Other, Label = _ => "" });
+        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_ten_winds", Kind = ActionWordKind.Tsumo, Label = _ => "十风和" });
+    }
+
+    /// <summary>
+    /// 注册一套「杭州引擎」的大厅清单。杭州麻将与萧山麻将共用同一引擎，
+    /// 仅展示名/子规则文案不同，故清单按参数化生成。
+    /// </summary>
+    internal static void RegisterVariant(
+        string ruleId, string subRule, string displayName, string subRuleDisplay,
+        string subRuleWholeName, string shortName, int lobbyOrder) {
+        RuleNameDictionary.WholeName[ruleId] = displayName;
+        RuleNameDictionary.WholeName[subRule] = subRuleWholeName;
+        RuleNameDictionary.ShortName[ruleId] = shortName;
+        RuleNameDictionary.ShortName[subRule] = shortName;
         RuleRegistry.Register(new RuleManifest {
-            RuleId = HangzhouGameState.RuleId, DefaultSubRule = HangzhouGameState.SubRule,
-            DisplayName = "杭州麻将", LobbyName = "杭州麻将", LobbyOrder = 12,
-            LobbySubRules = new[] { new RuleLobbySubRule(HangzhouGameState.SubRule, "MIL 2025", Description) },
+            RuleId = ruleId, DefaultSubRule = subRule,
+            DisplayName = displayName, LobbyName = displayName, LobbyOrder = lobbyOrder,
+            LobbySubRules = new[] { new RuleLobbySubRule(subRule, subRuleDisplay, Description) },
             CreateRoomDefaults = new Dictionary<string,object> {
                 { CreateRoomKeys.SubRule, 0 }, { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
                 { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
@@ -43,9 +56,6 @@ internal static class HangzhouRuleBootstrap {
             ReplayConcealedKongMask = (rule,tiles) => new[] { 2,tiles[0],2,tiles[1],2,tiles[2],2,tiles[3] },
             RulebookKey = "hangzhou",
         });
-        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_piao", Kind = ActionWordKind.Other, Label = _ => "飘" });
-        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_tail_burn", Kind = ActionWordKind.Other, Label = _ => "" });
-        ActionWords.Register(new ActionWordSpec { Word = "hangzhou_ten_winds", Kind = ActionWordKind.Tsumo, Label = _ => "十风和" });
     }
 }
 internal static class HangzhouFanText {

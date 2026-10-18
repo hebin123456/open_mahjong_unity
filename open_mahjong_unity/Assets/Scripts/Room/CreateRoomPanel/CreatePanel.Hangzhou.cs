@@ -1,7 +1,7 @@
 public partial class CreatePanel {
     private void CreateHangzhouRoom() {
         var config = new Qingque_Create_RoomConfig {
-            Rule=HangzhouGameState.RuleId, SubRule=HangzhouGameState.SubRule,
+            Rule=_ruleState, SubRule=GetSelectedSubRule(),
             RoomName=roomNameInput.text.Trim(), GameRound=GetSelectedGameTime(),
             Password=passwordToggle.isOn ? passwordInput.text.Trim() : "",
             RandomSeed=SetRandomSeedToggle.isOn ? randomSeedInput.text.Trim() : "",

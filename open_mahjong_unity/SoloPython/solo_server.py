@@ -57,6 +57,39 @@ SOLO_ROOM_ID = "solo-hangzhou"
 SOLO_INSTANCE_ID = "solo-instance-1"
 BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特"}
 
+# 大厅可选规则：萧山麻将完全复用杭州引擎，引擎内部恒按 hangzhou 处理；
+# 这里记录用户在建房时选择的大厅规则，仅用于对外消息与房间信息的展示名。
+HANGZHOU_RULE = "hangzhou"
+HANGZHOU_SUB_RULE = "hangzhou/mil2025"
+XIAOSHAN_RULE = "xiaoshan"
+XIAOSHAN_SUB_RULE = "xiaoshan/xiaoshan"
+RULE_ROOM_NAMES = {HANGZHOU_RULE: "单机杭州麻将", XIAOSHAN_RULE: "单机萧山麻将"}
+
+
+def _relabel_payload(payload: dict, rule: str, sub_rule: str) -> None:
+    """把杭州引擎产生的对外消息重新标注为所选大厅规则（如萧山）。
+
+    引擎的 ``type`` 前缀（``gamestate/hangzhou/...``）与 ``game_info.room_rule``
+    都写死为 hangzhou，客户端据此解析规则清单；改标注后客户端即按萧山清单处理。
+    """
+    mtype = payload.get("type")
+    if isinstance(mtype, str) and mtype.startswith("gamestate/hangzhou/"):
+        payload["type"] = "gamestate/" + rule + mtype[len("gamestate/hangzhou"):]
+    game_info = payload.get("game_info")
+    if isinstance(game_info, dict):
+        if game_info.get("room_rule") == HANGZHOU_RULE:
+            game_info["room_rule"] = rule
+        if game_info.get("sub_rule") == HANGZHOU_SUB_RULE:
+            game_info["sub_rule"] = sub_rule
+
+
+def _resolve_room_rule(message: dict):
+    """从建房请求中解析大厅规则；仅杭州/萧山有效，其它一律回退杭州。"""
+    rule = message.get("rule") or HANGZHOU_RULE
+    if rule == XIAOSHAN_RULE:
+        return XIAOSHAN_RULE, message.get("sub_rule") or XIAOSHAN_SUB_RULE
+    return HANGZHOU_RULE, HANGZHOU_SUB_RULE
+
 
 # ----------------------------------------------------------------------------
 # 极简 WebSocket 服务端（RFC6455 子集）
@@ -72,6 +105,8 @@ class WsConnection:
         self.Connect_id = None
         # 握手请求的 path（如 /game/<id>、/chat/<id>），用于区分对局连接与其它连接
         self.path = ""
+        # 所属单机服务：用于把杭州引擎的对外消息按所选大厅规则（杭州/萧山）重新标注
+        self.server = None
         # 对局任务与连接读循环可能并发写同一 socket；不加锁会让两帧字节交错，
         # 客户端解析出错后表现为「消息没到」。所有写出都串行化。
         self._write_lock = asyncio.Lock()
@@ -79,6 +114,11 @@ class WsConnection:
         self.websocket = self
 
     async def send_json(self, payload):
+        server = self.server
+        if server is not None and server._label_rule != "hangzhou":
+            # 引擎内部固定按杭州处理，但大厅入口可能是萧山；对外消息按所选规则重新标注，
+            # 使客户端按萧山清单解析与显示。
+            _relabel_payload(payload, server._label_rule, server._label_sub_rule)
         msg_type = str(payload.get("type"))
         try:
             await self._send_text(json.dumps(payload, ensure_ascii=False))
@@ -215,6 +255,8 @@ class SoloServer:
         self._game = None
         self._room = None        # 当前单机房间的 room_info；None 表示尚未建房
         self._room_opts = {}     # 建房时选定的开局参数（局数等）
+        self._label_rule = HANGZHOU_RULE             # 对外展示的大厅规则（杭州/萧山）
+        self._label_sub_rule = HANGZHOU_SUB_RULE
         self._start_lock = asyncio.Lock()
 
 
@@ -256,7 +298,8 @@ def _player_settings() -> dict:
     return settings
 
 
-def _build_room_info(rounds: int, room_name: str = "", password: str = "") -> dict:
+def _build_room_info(rounds: int, room_name: str = "", password: str = "",
+                     rule: str = HANGZHOU_RULE, sub_rule: str = HANGZHOU_SUB_RULE) -> dict:
     """客户端 RoomPanel 需要的 room_info。
 
     直接放入 1 真人 + 3 机器人：客户端把 user_id<=10 视为机器人且默认「已准备」，
@@ -267,8 +310,8 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "") -> di
         "room_id": SOLO_ROOM_ID,
         "instance_id": SOLO_INSTANCE_ID,
         "room_type": "custom",
-        "room_rule": "hangzhou",
-        "sub_rule": "hangzhou/mil2025",
+        "room_rule": rule,
+        "sub_rule": sub_rule,
         "hepai_limit": 0,
         "tourist_limit": False,
         "allow_spectator": False,
@@ -283,7 +326,7 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "") -> di
         "pointer_tips": True,
         "host_name": HUMAN_USERNAME,
         "host_user_id": HUMAN_USER_ID,
-        "room_name": room_name or "单机杭州麻将",
+        "room_name": room_name or RULE_ROOM_NAMES.get(rule, "单机麻将"),
         "game_round": rounds,
         "round_timer": 300,
         "step_timer": 20,
@@ -440,20 +483,24 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
                            "room_list": [], "show_tip": bool(message.get("show_tip"))})
         return
 
-    if mtype == "room/create_Hangzhou_room":
+    if mtype in ("room/create_Hangzhou_room", "room/create_Xiaoshan_room"):
+        # 杭州/萧山共用同一引擎，仅按建房时选择的大厅规则决定对外展示名。
+        rule, sub_rule = _resolve_room_rule(message)
+        server._label_rule = rule
+        server._label_sub_rule = sub_rule
         rounds = int(message.get("gameround") or 4)
         server._room_opts = {"rounds": rounds}
         server._room = _build_room_info(rounds, room_name=message.get("roomname", ""),
-                                        password=message.get("password", ""))
-        logger.info("已创建单机房间 %s，玩家=%s", SOLO_ROOM_ID, server._room["player_list"])
+                                        password=message.get("password", ""), rule=rule, sub_rule=sub_rule)
+        logger.info("已创建单机房间 %s，规则=%s，玩家=%s", SOLO_ROOM_ID, rule, server._room["player_list"])
         await _send(conn, {"type": "room/create_room_done", "success": True,
                            "message": "房间创建成功", "room_info": server._room})
         return
 
     if mtype.startswith("room/create_"):
-        # 单机内嵌的引擎只实现了杭州麻将，其它规则直接拒绝
+        # 单机内嵌的引擎只实现了杭州麻将（萧山为其别名），其它规则直接拒绝
         await _send(conn, {"type": "room/create_room_done", "success": False,
-                           "message": "单机版仅支持杭州麻将"})
+                           "message": "单机版仅支持杭州麻将和萧山麻将"})
         return
 
     if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot",
@@ -478,6 +525,8 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         await _stop_solo_game(server)
         server._room = None
         server._room_opts = {}
+        server._label_rule = HANGZHOU_RULE
+        server._label_sub_rule = HANGZHOU_SUB_RULE
         await _send(conn, {"type": "room/leave_room_done", "success": True,
                            "message": "离开房间成功", "room_id": message.get("room_id", SOLO_ROOM_ID),
                            "room_instance_id": SOLO_INSTANCE_ID})
@@ -508,6 +557,7 @@ async def _serve_connection(server: SoloServer, reader, writer):
     if path is None:
         return
     conn = WsConnection(reader, writer)
+    conn.server = server
     conn.path = path
     conn.Connect_id = f"solo-{id(conn)}"
     logger.info("客户端已连接 %s path=%s", conn.Connect_id, path)

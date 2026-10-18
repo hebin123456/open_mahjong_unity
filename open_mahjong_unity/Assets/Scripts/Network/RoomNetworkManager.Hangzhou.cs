@@ -9,7 +9,7 @@ public partial class RoomNetworkManager {
                 CancelPendingRoomEntry(); NotificationManager.Instance.ShowTip("create_room",false,error); return;
             }
             var request = new {
-                type="room/create_Hangzhou_room", rule=HangzhouGameState.RuleId, sub_rule=HangzhouGameState.SubRule,
+                type="room/create_Hangzhou_room", rule=config.Rule, sub_rule=config.SubRule,
                 roomname=config.RoomName, gameround=config.GameRound, password=config.Password, random_seed=seed,
                 roundTimerValue=config.RoundTimer, stepTimerValue=config.StepTimer,
                 tips=config.Tips, count_tips=config.CountTips, pointer_tips=config.PointerTips,
