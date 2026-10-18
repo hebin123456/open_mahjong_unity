@@ -308,6 +308,7 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
         tips=True,
         random_seed=0,
         bot_speed="fast",
+        bot_level="medium",
     )
     if rule == GUOBIAO_RULE:
         # 国标特有开局参数：起和番限制、花牌、天地人和、错和、鸣牌保护等
@@ -498,6 +499,11 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             configure_bot_pacing(state, room_data)
         except Exception as exc:      # 配置失败不影响对局
             logger.warning("configure_bot_pacing 失败: %s", exc)
+        try:
+            from server.gamestate.public.ai.level import normalize_bot_level
+            state.bot_level = normalize_bot_level((server._room or {}).get("bot_level"))
+        except Exception as exc:      # 配置失败不影响对局
+            logger.warning("configure_bot_level 失败: %s", exc)
 
         server._game = state
         server.gamestate_manager._game = state
@@ -619,6 +625,18 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
             if game is not None:
                 from server.gamestate.public.ai.pacing import normalize_bot_speed
                 game.bot_speed = normalize_bot_speed(speed)
+        await _broadcast_room_info(server, conn)
+        return
+
+    if mtype == "room/set_bot_level":
+        level = message.get("bot_level")
+        if server._room is not None and isinstance(level, str) and level:
+            server._room["bot_level"] = level
+            # 对局进行中也即时生效；非法档位由 normalize 归一成默认。
+            game = getattr(server, "_game", None)
+            if game is not None:
+                from server.gamestate.public.ai.level import normalize_bot_level
+                game.bot_level = normalize_bot_level(level)
         await _broadcast_room_info(server, conn)
         return
 

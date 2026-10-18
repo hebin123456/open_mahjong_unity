@@ -914,6 +914,16 @@ public partial class RoomNetworkManager : MonoBehaviour {
         }
     }
 
+    public async void SetBotLevel(string roomId, string level) {
+        try {
+            var request = new { type = "room/set_bot_level", room_id = roomId, bot_level = level };
+            await GetWebSocket().SendText(JsonConvert.SerializeObject(request));
+        } catch (System.Exception exception) {
+            Debug.LogError($"调整电脑水平失败: {exception.Message}");
+            NotificationManager.Instance.ShowTip("set_bot_level", false, "调整失败，请检查连接后重试");
+        }
+    }
+
     /// <summary>
     /// 添加牌效机器人到房间
     /// </summary>
