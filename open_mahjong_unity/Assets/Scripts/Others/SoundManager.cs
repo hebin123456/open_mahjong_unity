@@ -185,11 +185,13 @@ public class SoundManager : MonoBehaviour {
             int reportTile = tileId == 46 && jokerTile > 0 && jokerTile != 46 ? jokerTile : tileId;
             int color = reportTile / 10, value = reportTile % 10;
             if (color >= 1 && color <= 3 && value >= 1 && value <= 9) {
-                // 音源文件 mjt1_x 实际录的是筒、mjt3_x 录的是万（录制时万/筒标反），此处对调修正。
-                int voiceColor = color == 1 ? 3 : color == 3 ? 1 : color;
+                // 音源实测内容：mjt1_x=筒、mjt2_x=万、mjt3_x=条（录制内容与序号错位），
+                // 按实测对号入座：万(1)→mjt2、筒(2)→mjt1、条(3)→mjt3。
+                int voiceColor = color == 1 ? 2 : color == 2 ? 1 : color;
                 voiceKey = $"mjt{voiceColor}_{value}";
             } else if (reportTile >= 41 && reportTile <= 47) {
-                voiceKey = $"mjt4_{(reportTile == 47 ? 6 : reportTile - 40)}";
+                // 音源字牌顺序为东南西北中发白：发(47)→6、白(46)→7，其余 41-45→1-5。
+                voiceKey = $"mjt4_{(reportTile == 47 ? 6 : reportTile == 46 ? 7 : reportTile - 40)}";
             } else {
                 return;
             }
