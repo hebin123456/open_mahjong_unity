@@ -269,9 +269,20 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          pattern: '^(android-apk|windows-package|unsigned-ipa)$'
-          merge-multiple: true
+          name: android-apk
+          path: artifacts/android-apk
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: artifacts/windows-package
+
+      - name: Download unsigned IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: unsigned-ipa
+          path: artifacts/unsigned-ipa
 
       - name: Publish to Release
         env:
@@ -289,6 +300,6 @@ jobs:
           - Android.apk：安卓安装包
           - Windows.zip：Windows 解压运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
-            "artifacts/Android.apk" \
-            "artifacts/Windows.zip" \
-            "artifacts/Unsigned.ipa"
+            "artifacts/android-apk/Android.apk" \
+            "artifacts/windows-package/Windows.zip" \
+            "artifacts/unsigned-ipa/Unsigned.ipa"
