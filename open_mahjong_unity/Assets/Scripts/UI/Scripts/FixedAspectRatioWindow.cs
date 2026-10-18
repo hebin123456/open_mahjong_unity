@@ -68,6 +68,25 @@ public class FixedAspectRatio : MonoBehaviour {
     private bool isLetterboxActive;
     private readonly Dictionary<Canvas, CanvasState> overlayCanvasStates = new Dictionary<Canvas, CanvasState>();
     private Canvas[] letterboxRootCanvases;
+    // 视口比例放宽到比 16:9 更方时，按比例放大透视相机竖直 FOV，保持水平视野与 16:9 构图一致。
+    private readonly Dictionary<Camera, float> cameraBaseFov = new Dictionary<Camera, float>();
+
+    /// <summary>
+    /// 移动端 letterbox 目标比例：夹在 [4:3, 16:9] 内跟随屏幕。
+    /// 大折叠/平板展开态接近 1:1（1.1~1.3），若仍固定 16:9 画面只占屏幕约 2/3 高；
+    /// 收紧到 4:3 后视口利用率约 90%，16:9~20:9 主流直板机 clamp 后仍为 16:9，不受影响。
+    /// </summary>
+    private float LetterboxTargetAspect {
+        get {
+#if UNITY_ANDROID || UNITY_IOS
+            float screen = Screen.width / (float)Screen.height;
+            if (screen < 1f) screen = 1f / screen;
+            return Mathf.Clamp(screen, 4f / 3f, 16f / 9f);
+#else
+            return targetAspectRatio;
+#endif
+        }
+    }
 
     private struct CanvasState {
         public RenderMode renderMode;
@@ -226,7 +245,8 @@ public class FixedAspectRatio : MonoBehaviour {
 #if UNITY_ANDROID || UNITY_IOS
         if (aspect < 1f) aspect = 1f / aspect;
 #endif
-        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect) : new Rect(0f, 0f, 1f, 1f);
+        float targetAspect = LetterboxTargetAspect;
+        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
 
         currentCameraRect = targetRect;
         Camera[] cameras = GetTargetCameras();
@@ -234,6 +254,7 @@ public class FixedAspectRatio : MonoBehaviour {
             cameras[i].rect = currentCameraRect;
         }
 
+        ApplyCameraFov(shouldLetterbox, targetAspect, cameras);
         ApplyCanvasViewport(shouldLetterbox);
         ApplyBlackBars(currentCameraRect);
     }
@@ -354,14 +375,39 @@ public class FixedAspectRatio : MonoBehaviour {
         return Camera.main;
     }
 
-    private Rect GetTargetViewport(float screenAspectRatio) {
-        if (screenAspectRatio > targetAspectRatio) {
-            float width = targetAspectRatio / screenAspectRatio;
+    private Rect GetTargetViewport(float screenAspectRatio, float targetAspect) {
+        if (screenAspectRatio > targetAspect) {
+            float width = targetAspect / screenAspectRatio;
             return new Rect((1f - width) * 0.5f, 0f, width, 1f);
         }
 
-        float height = screenAspectRatio / targetAspectRatio;
+        float height = screenAspectRatio / targetAspect;
         return new Rect(0f, (1f - height) * 0.5f, 1f, height);
+    }
+
+    /// <summary>
+    /// 视口比例从 16:9 放宽到更方的 target 后，同一竖直 FOV 下水平视野变窄，
+    /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV，
+    /// 使水平视野与 16:9 letterbox 时一致；恢复 16:9 目标时还原原始 FOV。
+    /// </summary>
+    private void ApplyCameraFov(bool letterbox, float targetAspect, Camera[] cameras) {
+        if (targetAspect <= 0f) return;
+        bool widen = letterbox && targetAspect < targetAspectRatio;
+        float fovScale = targetAspectRatio / targetAspect;
+        for (int i = 0; i < cameras.Length; i++) {
+            Camera camera = cameras[i];
+            if (camera == null || camera.orthographic) continue;
+            if (!cameraBaseFov.TryGetValue(camera, out float baseFov)) {
+                baseFov = camera.fieldOfView;
+                cameraBaseFov.Add(camera, baseFov);
+            }
+            if (widen) {
+                float tanHalf = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad) * fovScale;
+                camera.fieldOfView = 2f * Mathf.Atan(tanHalf) * Mathf.Rad2Deg;
+            } else {
+                camera.fieldOfView = baseFov;
+            }
+        }
     }
 
     private int GetRectWidth(RECT rect) {
