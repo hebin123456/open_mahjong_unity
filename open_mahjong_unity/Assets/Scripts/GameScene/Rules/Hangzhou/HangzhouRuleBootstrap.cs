@@ -20,21 +20,24 @@ internal static class HangzhouRuleBootstrap {
     internal static void RegisterVariant(
         string ruleId, string subRule, string displayName, string subRuleDisplay,
         string subRuleWholeName, string shortName, int lobbyOrder,
-        string description = null, string settlementFootnote = null, string roundSupplement = null) {
+        string description = null, string settlementFootnote = null, string roundSupplement = null,
+        bool baotouRequiredSwitch = false) {
         RuleNameDictionary.WholeName[ruleId] = displayName;
         RuleNameDictionary.WholeName[subRule] = subRuleWholeName;
         RuleNameDictionary.ShortName[ruleId] = shortName;
         RuleNameDictionary.ShortName[subRule] = shortName;
+        var createRoomDefaults = new Dictionary<string,object> {
+            { CreateRoomKeys.SubRule, 0 }, { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
+            { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
+            { CreateRoomKeys.TacticalCall, true },
+            { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
+        };
+        if (baotouRequiredSwitch) createRoomDefaults[CreateRoomKeys.BaotouRequired] = false;
         RuleRegistry.Register(new RuleManifest {
             RuleId = ruleId, DefaultSubRule = subRule,
             DisplayName = displayName, LobbyName = displayName, LobbyOrder = lobbyOrder,
             LobbySubRules = new[] { new RuleLobbySubRule(subRule, subRuleDisplay, description ?? Description) },
-            CreateRoomDefaults = new Dictionary<string,object> {
-                { CreateRoomKeys.SubRule, 0 }, { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
-                { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
-                { CreateRoomKeys.TacticalCall, true },
-                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
-            },
+            CreateRoomDefaults = createRoomDefaults,
             GameStateFactory = () => new HangzhouGameState(), OutboundChannel = "hangzhou",
             Tingpai = query => GameRecordManager.Instance?.ShouldShowRecordTips() == true
                 ? GameRecordManager.Instance.HangzhouWaiting(query) : HangzhouGameState.Active?.Hints.Waiting(query) ?? new HashSet<int>(),

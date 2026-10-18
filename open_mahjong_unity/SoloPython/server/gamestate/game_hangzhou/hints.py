@@ -19,13 +19,19 @@ class HintRequest:
     rule_version: str
     jokers: tuple = ()
     physicals: tuple = ()
+    baotou_required: bool = False
 
 
 @lru_cache(maxsize=1024)
-def _waits(hand, melds, jokers=(), physicals=(), xiaoshan=False):
+def _waits(hand, melds, jokers=(), physicals=(), xiaoshan=False, baotou_required=False):
     if xiaoshan:
-        return tuple(sorted(xs.waiting_tiles(hand, xs.meld_frames(melds, physicals),
-                                             jokers[0] if jokers else 46)))
+        frames = xs.meld_frames(melds, physicals)
+        joker = jokers[0] if jokers else 46
+        # 「有财神必须爆头」：手上有财神但去掉后不能成搭时，当前根本无法和牌。
+        if (baotou_required and joker in hand
+                and not xs.can_baotou(hand, frames, joker)):
+            return ()
+        return tuple(sorted(xs.waiting_tiles(hand, frames, joker)))
     return tuple(sorted(waiting_tiles(hand, melds, jokers or (46,))))
 
 
@@ -41,7 +47,8 @@ def current_request(state, index, *, for_record=False):
         return None
     return HintRequest(tuple(p.hand_tiles), tuple(p.combination_tiles),
                        tuple(sorted(legal_cuts(state, index))), state.rule_version,
-                       tuple(getattr(state, "jokers", (46,))), _request_physicals(p))
+                       tuple(getattr(state, "jokers", (46,))), _request_physicals(p),
+                       getattr(state, "baotou_required", False))
 
 
 @lru_cache(maxsize=256)
@@ -51,14 +58,15 @@ def compute(request):
     xiaoshan = request.rule_version.startswith("xiaoshan")
     waits, by_cut = (), ()
     if len(hand) + 3 * len(melds) == 13:
-        waits = _waits(tuple(sorted(hand)), melds, request.jokers, request.physicals, xiaoshan)
+        waits = _waits(tuple(sorted(hand)), melds, request.jokers, request.physicals,
+                       xiaoshan, request.baotou_required)
     elif len(hand) + 3 * len(melds) == 14:
         rows = []
         for tile in request.cuts:
             remaining = list(hand)
             remaining.remove(tile)
             rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers,
-                                      request.physicals, xiaoshan)))
+                                      request.physicals, xiaoshan, request.baotou_required)))
         by_cut = tuple(rows)
     return waits, by_cut
 
@@ -97,7 +105,8 @@ def _snapshot_request(state, payload):
     physicals = tuple(tuple(mask[1::2]) for mask in info["players_info"][index]["combination_mask"])
     cuts = ((hand[-1],) if info["self_has_draw_slot"] else ()) if public["forced_draw_discard"][index] else tuple(sorted(set(hand)))
     return HintRequest(hand, melds, cuts, public["rule_version"],
-                       tuple(public.get("joker_tiles") or (46,)), physicals)
+                       tuple(public.get("joker_tiles") or (46,)), physicals,
+                       bool(public.get("baotou_required")))
 
 
 async def prepare(state, *, payloads=(), indices=()):

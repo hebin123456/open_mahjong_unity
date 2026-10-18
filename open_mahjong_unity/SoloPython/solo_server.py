@@ -315,10 +315,13 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
             if key in opts:
                 data[key] = opts[key]
     elif rule == XIAOSHAN_RULE:
-        # 萧山馆规：开局积分与总倍率封顶，经 detailed_config 交引擎 normalize_config 校验
-        data["detailed_config"] = {
-            key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
-        }
+        # 萧山馆规：开局积分、总倍率封顶与房规开关（如「有财神必须爆头」），
+        # 经 detailed_config 交引擎 normalize_config 校验。
+        detailed = {key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts}
+        if isinstance(opts.get("detailed_config"), dict):
+            detailed.update(opts["detailed_config"])
+        if detailed:
+            data["detailed_config"] = detailed
     return data
 
 
@@ -576,10 +579,13 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
                 if key in message and message[key] is not None:
                     opts[key] = message[key]
         elif rule == XIAOSHAN_RULE:
-            # 萧山：透传开局积分、总倍率封顶
+            # 萧山：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
             for key in XIAOSHAN_PASSTHROUGH_KEYS:
                 if key in message and message[key] is not None:
                     opts[key] = message[key]
+            detailed = message.get("detailed_config")
+            if isinstance(detailed, dict) and detailed:
+                opts["detailed_config"] = detailed
         server._room_opts = opts
         server._room = _build_room_info(rounds, room_name=message.get("roomname", ""),
                                         password=message.get("password", ""), rule=rule, sub_rule=sub_rule,

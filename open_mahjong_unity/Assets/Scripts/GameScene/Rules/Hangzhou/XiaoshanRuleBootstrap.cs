@@ -14,6 +14,6 @@ internal static class XiaoshanRuleBootstrap {
         HangzhouRuleBootstrap.RegisterVariant(RuleId, SubRule, "萧山麻将", "家庭房规 v1.3", "萧山麻将（家庭房规）", "萧山", 13,
             Description,
             "番种倍率相乘，默认32倍封顶\n老庄2/4/8倍起翻番；三吃承包依责任支付。",
-            "倍率相乘");
+            "倍率相乘", baotouRequiredSwitch: true);
     }
 }

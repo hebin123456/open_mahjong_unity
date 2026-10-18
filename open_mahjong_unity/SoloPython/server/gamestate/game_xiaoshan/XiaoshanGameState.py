@@ -44,6 +44,7 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
             for player in self.player_list:
                 player.score = self.starting_score
             self.round_start_scores = [p.score for p in self.player_list]
+        self.baotou_required = bool(self.detailed_config.get("baotou_required", False))
         self.claim_from = [[0] * 4 for _ in range(4)]
 
     @staticmethod
@@ -122,7 +123,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
             WinContext(self_drawn=True, after_kong=p.after_kong,
                        cai_piao_count=p.cai_piao_count if p.drawn_after_cai else 0,
                        pre_draw_tiles=tuple(p.pre_draw_tiles)),
-            joker=self.joker_indicator, total_cap=self.total_cap)
+            joker=self.joker_indicator, total_cap=self.total_cap,
+            baotou_required=self.baotou_required)
 
     def _is_tian_hu(self, winner):
         return (winner == self.dealer_index and not self.discard_log
@@ -200,4 +202,5 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         data["claim_counts"] = [list(row) for row in self.claim_from]
         data["total_cap"] = self.total_cap
         data["starting_score"] = self.starting_score
+        data["baotou_required"] = self.baotou_required
         return data

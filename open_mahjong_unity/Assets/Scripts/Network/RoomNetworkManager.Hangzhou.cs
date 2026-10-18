@@ -9,14 +9,16 @@ public partial class RoomNetworkManager {
             if (!TryResolveRandomSeed(config.RandomSeed,out string seed,out string error)) {
                 CancelPendingRoomEntry(); NotificationManager.Instance.ShowTip("create_room",false,error); return;
             }
-            object detailedConfig = config.TotalCap.HasValue
-                ? (object)new Dictionary<string, object> {
-                    // 萧山馆规：总倍率封顶、开局积分；rule_version 服务端按萧山版本归一
-                    ["rule_version"] = HangzhouGameState.RuleVersion,
-                    ["total_cap"] = config.TotalCap.Value,
-                    ["starting_score"] = config.StartingScore ?? 0,
-                }
-                : new { rule_version = HangzhouGameState.RuleVersion };
+            var detailedConfig = new Dictionary<string, object> { ["rule_version"] = HangzhouGameState.RuleVersion };
+            // 萧山馆规：总倍率封顶、开局积分
+            if (config.TotalCap.HasValue) {
+                detailedConfig["total_cap"] = config.TotalCap.Value;
+                detailedConfig["starting_score"] = config.StartingScore ?? 0;
+            }
+            // 馆规选项（萧山「有财神必须爆头」等）
+            if (config.DetailedConfig != null) {
+                foreach (KeyValuePair<string, object> item in config.DetailedConfig) detailedConfig[item.Key] = item.Value;
+            }
             var request = new {
                 type="room/create_Hangzhou_room", rule=config.Rule, sub_rule=config.SubRule,
                 roomname=config.RoomName, gameround=config.GameRound, password=config.Password, random_seed=seed,

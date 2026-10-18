@@ -30,10 +30,10 @@ DEFAULT_STARTING_SCORE = 0
 
 
 def normalize_config(raw=None):
-    """萧山房规可协商总倍率封顶与开局积分；其余沿用杭州引擎的配置形状。"""
+    """萧山房规可协商总倍率封顶、开局积分与「有财神必须爆头」开关；其余沿用杭州引擎的配置形状。"""
     if raw is None:
         raw = {}
-    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score"}:
+    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score", "baotou_required"}:
         raise ValueError("萧山麻将没有其它馆规选项")
     version = raw.get("rule_version", RULE_VERSION)
     if version not in (RULE_VERSION, "mil-hangzhou-2025-om1"):
@@ -44,7 +44,11 @@ def normalize_config(raw=None):
     starting = raw.get("starting_score", DEFAULT_STARTING_SCORE)
     if starting not in STARTING_SCORES:
         raise ValueError("开局积分只能为 50、100 或 200")
-    return {"rule_version": RULE_VERSION, "total_cap": cap, "starting_score": starting}
+    baotou = raw.get("baotou_required", False)
+    if not isinstance(baotou, bool):
+        raise ValueError("爆头开关只能是开或关")
+    return {"rule_version": RULE_VERSION, "total_cap": cap,
+            "starting_score": starting, "baotou_required": baotou}
 
 
 @dataclass(frozen=True)
@@ -243,8 +247,13 @@ def _shape_fans(shape, hand, melds, context, joker, pre_draw):
 
 
 def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
-                 total_cap=DEFAULT_TOTAL_CAP):
-    """最优合法自摸：枚举全部逻辑拆解，取倍率相乘后最大者。"""
+                 total_cap=DEFAULT_TOTAL_CAP, baotou_required=False):
+    """最优合法自摸：枚举全部逻辑拆解，取倍率相乘后最大者。
+
+    ``baotou_required``（有财神必须爆头）：摸牌前手上有财神时，必须满足
+    爆头条件（去掉财神后仍可成搭/六对，即财神只能做将）才允许和牌，
+    财神不得单纯充当百搭凑牌型。
+    """
     external = _valid(hand, melds, joker, complete=True)
     if external is None:
         return None
@@ -268,6 +277,10 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
                 or Counter(pre_draw) != Counter(context.pre_draw_tiles)):
             return None
         pre_draw = list(context.pre_draw_tiles)
+    # 「有财神必须爆头」：摸牌前手上有财神时，必须满足爆头条件才能和牌。
+    if (baotou_required and any(t == joker for t in pre_draw)
+            and not can_baotou(pre_draw, melds, joker)):
+        return None
     policy = _policy(joker)
     best = None
     for shape in iter_winning_shapes(hand, external, policy, winning_tile=win_tile,

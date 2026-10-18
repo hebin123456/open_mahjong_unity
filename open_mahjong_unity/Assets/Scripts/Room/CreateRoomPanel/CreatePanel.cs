@@ -156,6 +156,7 @@ public partial class CreatePanel : MonoBehaviour {
         BindFixedCreateControls();
         EnsureChangshaKamoAndCapControls();
         EnsureXiaoshanScoreControls();
+        EnsureXiaoshanBaotouToggle();
         BindDetailedConfigControls("taiwan");
         BindDetailedConfigControls("hongkong");
         BindDetailedConfigControls("riichi");
@@ -346,6 +347,9 @@ public partial class CreatePanel : MonoBehaviour {
             case CreateRoomKeys.WallWinds: if (WallWindsToggle != null) WallWindsToggle.isOn = (bool)value; break;
             case CreateRoomKeys.WallDragons: if (WallDragonsToggle != null) WallDragonsToggle.isOn = (bool)value; break;
             case CreateRoomKeys.WallFlowers: if (WallFlowersToggle != null) WallFlowersToggle.isOn = (bool)value; break;
+            case CreateRoomKeys.BaotouRequired:
+                if (XiaoshanBaotouToggle != null) XiaoshanBaotouToggle.SetIsOnWithoutNotify((bool)value);
+                break;
         }
     }
 
@@ -395,6 +399,7 @@ public partial class CreatePanel : MonoBehaviour {
         SetChangshaOptionsVisible(DefaultsOf(_ruleState).ContainsKey(CreateRoomKeys.CsBirdCount));
         SetXiaoshanOptionsVisible(_ruleState == XiaoshanRuleBootstrap.RuleId);
         SetWallOptionsVisible(visible.ContainsKey(CreateRoomKeys.WallWan));
+        SetToggleVisible(XiaoshanBaotouToggle, visible.ContainsKey(CreateRoomKeys.BaotouRequired));
         if (YixingSevenPairsToggle) YixingSevenPairsToggle.gameObject.SetActive(visible.ContainsKey(YixingRuleBootstrap.SevenPairsKey));
         RefreshGuangdongControls();
         SetCommonCreateControlsVisible(visible);
