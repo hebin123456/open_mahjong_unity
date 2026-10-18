@@ -21,6 +21,8 @@ public class Qingque_Create_RoomConfig {
     public bool TacticalCall { get; set; }
     public string HepaiWay { get; set; } // head_bump / multi_ron（虹雀使用）
     public string EventId { get; set; }
+    public int? StartingScore { get; set; } // 萧山馆规：开局积分（每人初始持有）
+    public int? TotalCap { get; set; }      // 萧山馆规：总倍率封顶
 
     public bool Validate(out string error, bool passwordToggle, bool setRandomSeedToggle) {
         if (string.IsNullOrEmpty(RoomName)) {

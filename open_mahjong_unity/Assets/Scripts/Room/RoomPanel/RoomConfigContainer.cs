@@ -135,6 +135,16 @@ public class RoomConfigContainer : MonoBehaviour {
     }
 
     private static void AddDetailedConfig(RoomInfo roomInfo, List<KeyValuePair<string, string>> result) {
+        if (roomInfo.room_rule == XiaoshanRuleBootstrap.RuleId) {
+            // 萧山馆规摘要：建房时下发的开局积分与总倍率封顶
+            if (TryReadDetailedInt(roomInfo.detailed_config, "starting_score", out int starting)) {
+                result.Add(new KeyValuePair<string, string>("开局积分", $"{starting}分"));
+            }
+            if (TryReadDetailedInt(roomInfo.detailed_config, "total_cap", out int cap)) {
+                result.Add(new KeyValuePair<string, string>("倍率封顶", $"{cap}倍"));
+            }
+            return;
+        }
         if (roomInfo.sub_rule == GuangdongMilRules.SubRule) {
             bool minimum = roomInfo.detailed_config == null || !roomInfo.detailed_config.TryGetValue("require_minimum_score", out object raw) || raw?.ToString().ToLowerInvariant() != "false";
             result.Add(new KeyValuePair<string,string>("规则底本", "MIL 2023 花鬼"));
@@ -167,6 +177,15 @@ public class RoomConfigContainer : MonoBehaviour {
             if (overrides.TryGetValue(fan.Id, out int value))
                 result.Add(new KeyValuePair<string, string>($"台值·{fan.Label}", $"{value}{fan.Unit}"));
         }
+    }
+
+    /// <summary>读取馆规里的整数值；键缺失或非法返回 false。</summary>
+    private static bool TryReadDetailedInt(IDictionary<string, object> values, string key, out int value) {
+        value = 0;
+        return values != null
+            && values.TryGetValue(key, out object raw)
+            && raw != null
+            && int.TryParse(raw.ToString(), out value);
     }
 
     private static void ReadFanTaiOverrides(

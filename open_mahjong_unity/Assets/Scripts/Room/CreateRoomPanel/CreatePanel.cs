@@ -155,6 +155,7 @@ public partial class CreatePanel : MonoBehaviour {
     private void Start() {
         BindFixedCreateControls();
         EnsureChangshaKamoAndCapControls();
+        EnsureXiaoshanScoreControls();
         BindDetailedConfigControls("taiwan");
         BindDetailedConfigControls("hongkong");
         BindDetailedConfigControls("riichi");
@@ -392,6 +393,7 @@ public partial class CreatePanel : MonoBehaviour {
                 visible.ContainsKey(CreateRoomKeys.BloodBattle) && !isSichuanXueLiu);
         }
         SetChangshaOptionsVisible(DefaultsOf(_ruleState).ContainsKey(CreateRoomKeys.CsBirdCount));
+        SetXiaoshanOptionsVisible(_ruleState == XiaoshanRuleBootstrap.RuleId);
         SetWallOptionsVisible(visible.ContainsKey(CreateRoomKeys.WallWan));
         if (YixingSevenPairsToggle) YixingSevenPairsToggle.gameObject.SetActive(visible.ContainsKey(YixingRuleBootstrap.SevenPairsKey));
         RefreshGuangdongControls();

@@ -10,6 +10,11 @@ public partial class CreatePanel {
             TouristLimit=TouristLimitToggle.isOn, AllowSpectator=AllowSpectatorToggle.isOn,
             ClaimProtection=false, TacticalCall=TacticalCallToggle.isOn, EventId=_venueEventId,
         };
+        if (_ruleState == XiaoshanRuleBootstrap.RuleId) {
+            // 萧山馆规：开局积分与总倍率封顶
+            config.StartingScore = GetXiaoshanStartingScore();
+            config.TotalCap = GetXiaoshanTotalCap();
+        }
         if (!config.Validate(out string error,passwordToggle.isOn,SetRandomSeedToggle.isOn)) {
             NotificationManager.Instance.ShowTip("create_room",false,error); return;
         }
