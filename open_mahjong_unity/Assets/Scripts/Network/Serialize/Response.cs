@@ -34,7 +34,7 @@ public class RoomInfo {
     public int round_timer;
     public int step_timer;
     public bool is_game_running; // 游戏是否正在运行
-    public string bot_speed = "fast"; // instant / fast / medium / slow，整桌机器人共用
+    public string bot_speed = "fast"; // instant / fast / medium / slow / slower / slowest，整桌机器人共用
     public bool is_player_set_random_seed; // 场景复现：是否玩家指定主种子
     public bool open_cuohe; // 是否开启错和
     public int cuohe_type; // 国标/台湾错和形式，由房间列表返回

@@ -54,7 +54,7 @@ public partial class RoomPanel {
         SetBotRect((RectTransform)botSpeedDropdown.transform, new Vector2(180, -7.5f), new Vector2(270, 60));
         botSpeedDropdown.onValueChanged = new TMP_Dropdown.DropdownEvent();
         botSpeedDropdown.ClearOptions();
-        botSpeedDropdown.AddOptions(new List<string> { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）" });
+        botSpeedDropdown.AddOptions(new List<string> { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" });
         var popup = botSpeedDropdown.template;
         popup.anchorMin = new Vector2(0, 1);
         popup.anchorMax = Vector2.one;
@@ -101,7 +101,7 @@ public partial class RoomPanel {
         if (startButton.transform.parent.Find("ClaimProtection"))
             throw new InvalidOperationException("鸣牌保护应只在创建房间面板中设置。");
         if (!botSpeedDropdown || botSpeedDropdown.transform.parent.name != "BotSpeedRow"
-            || !botSpeedDropdown.options.Select(option => option.text).SequenceEqual(new[] { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）" })
+            || !botSpeedDropdown.options.Select(option => option.text).SequenceEqual(new[] { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" })
             || botSpeedDropdown.template.rect.height < 216
             || botSpeedDropdown.transform.parent.parent != startButton.transform.parent)
             throw new InvalidOperationException("房间面板机器人速度控件未烘焙。");

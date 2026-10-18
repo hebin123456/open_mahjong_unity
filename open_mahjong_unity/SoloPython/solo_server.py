@@ -307,7 +307,7 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
         room_type="custom",
         tips=True,
         random_seed=0,
-        bot_speed="normal",
+        bot_speed="fast",
     )
     if rule == GUOBIAO_RULE:
         # 国标特有开局参数：起和番限制、花牌、天地人和、错和、鸣牌保护等
@@ -490,8 +490,11 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
                        _DbStub() if rule == GUOBIAO_RULE else None,
                        "solo-" + uuid.uuid4().hex[:8])
         try:
-            from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing
+            from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing, normalize_bot_speed
             room_data.setdefault("bot_speed", DEFAULT_BOT_SPEED)
+            # 房间面板改过节奏时按房间当前值开局；旧值不在档位表里会归一成默认。
+            room_data["bot_speed"] = normalize_bot_speed(
+                (server._room or {}).get("bot_speed") or room_data["bot_speed"])
             configure_bot_pacing(state, room_data)
         except Exception as exc:      # 配置失败不影响对局
             logger.warning("configure_bot_pacing 失败: %s", exc)
@@ -608,8 +611,14 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         return
 
     if mtype == "room/set_bot_speed":
-        if server._room is not None:
-            server._room["bot_speed"] = message.get("bot_speed") or server._room.get("bot_speed", "fast")
+        speed = message.get("bot_speed")
+        if server._room is not None and isinstance(speed, str) and speed:
+            server._room["bot_speed"] = speed
+            # 对局进行中也即时生效；非法档位由 normalize 归一成默认。
+            game = getattr(server, "_game", None)
+            if game is not None:
+                from server.gamestate.public.ai.pacing import normalize_bot_speed
+                game.bot_speed = normalize_bot_speed(speed)
         await _broadcast_room_info(server, conn)
         return
 

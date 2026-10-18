@@ -36,7 +36,10 @@ public partial class RoomPanel : MonoBehaviour {
         if (readyButton != null) {
             readyButton.onClick.AddListener(ReadyButtonClicked);
         }
-        if (botSpeedDropdown != null) botSpeedDropdown.onValueChanged.AddListener(BotSpeedChanged);
+        if (botSpeedDropdown != null) {
+            botSpeedDropdown.onValueChanged.AddListener(BotSpeedChanged);
+            EnsureBotSpeedOptions();
+        }
     }
 
     private void Awake() {
@@ -245,14 +248,36 @@ public partial class RoomPanel : MonoBehaviour {
         RoomNetworkManager.Instance.LeaveRoom(UserDataManager.Instance.RoomId);
     }
 
-    private static int BotSpeedIndex(string speed) => speed == "instant" ? 0 : speed == "medium" ? 2 : speed == "slow" ? 3 : 1;
+    private static readonly string[] BotSpeedKeys = { "instant", "fast", "medium", "slow", "slower", "slowest" };
+    private static readonly string[] BotSpeedLabels = { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" };
+
+    private static int BotSpeedIndex(string speed) {
+        int index = System.Array.IndexOf(BotSpeedKeys, speed ?? "fast");
+        return index >= 0 ? index : 1;
+    }
+
+    // 场景烘焙的是旧 4 档选项；运行时与服务端档位对齐（含新增的 2 秒/3 秒）。
+    private void EnsureBotSpeedOptions() {
+        if (botSpeedDropdown == null) return;
+        bool match = botSpeedDropdown.options.Count == BotSpeedLabels.Length;
+        for (int i = 0; match && i < BotSpeedLabels.Length; i++) {
+            if (botSpeedDropdown.options[i].text != BotSpeedLabels[i]) match = false;
+        }
+        if (match) return;
+        int value = Mathf.Clamp(botSpeedDropdown.value, 0, BotSpeedLabels.Length - 1);
+        botSpeedDropdown.ClearOptions();
+        botSpeedDropdown.AddOptions(new System.Collections.Generic.List<string>(BotSpeedLabels));
+        botSpeedDropdown.template.sizeDelta = new Vector2(0, BotSpeedLabels.Length * 52 + 8);
+        botSpeedDropdown.SetValueWithoutNotify(value);
+        botSpeedDropdown.RefreshShownValue();
+    }
 
     private void BotSpeedChanged(int index) {
         if (lastRoomInfo == null) return;
         // The shared room broadcast owns the value; a rejected request cannot leave a local draft.
         botSpeedDropdown.SetValueWithoutNotify(BotSpeedIndex(lastRoomInfo.bot_speed));
         if (lastRoomInfo.host_user_id != UserDataManager.Instance.UserId || lastRoomInfo.is_game_running) return;
-        string speed = index == 0 ? "instant" : index == 2 ? "medium" : index == 3 ? "slow" : "fast";
+        string speed = index >= 0 && index < BotSpeedKeys.Length ? BotSpeedKeys[index] : "fast";
         if (speed != lastRoomInfo.bot_speed) RoomNetworkManager.Instance.SetBotSpeed(lastRoomInfo.room_id, speed);
     }
 

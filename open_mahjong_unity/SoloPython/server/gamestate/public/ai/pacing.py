@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from functools import wraps
 import time
 
-BOT_SPEEDS = {"instant": 0.0, "fast": 0.5, "medium": 1.0, "slow": 1.5}
+BOT_SPEEDS = {"instant": 0.0, "fast": 0.5, "medium": 1.0, "slow": 1.5,
+              "slower": 2.0, "slowest": 3.0}
 DEFAULT_BOT_SPEED = "fast"
 DEFAULT_BOT_DELAY = BOT_SPEEDS[DEFAULT_BOT_SPEED]
 
