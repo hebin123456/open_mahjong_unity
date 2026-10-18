@@ -86,29 +86,33 @@ jobs:
 
       - name: Allow plain HTTP (ATS) in Info.plist
         run: |
-          PLIST=xcode/Info.plist
-          if [ -f "$PLIST" ]; then
+          PLIST=$(find xcode -maxdepth 3 -name Info.plist | head -n 1)
+          echo "Info.plist: $PLIST"
+          if [ -n "$PLIST" ] && [ -f "$PLIST" ]; then
             plutil -remove NSAppTransportSecurity "$PLIST" 2>/dev/null || true
             plutil -insert NSAppTransportSecurity -xml '<dict><key>NSAllowsArbitraryLoads</key><true/></dict>' "$PLIST"
             echo "ATS patched:"
             plutil -p "$PLIST" | grep -A2 NSAppTransportSecurity || true
           else
-            echo "Info.plist not found at $PLIST, skipping ATS patch"
+            echo "Info.plist not found, skipping ATS patch"
           fi
 
       - name: Build unsigned .app
         run: |
           set -euo pipefail
-          PROJ=$(find xcode -maxdepth 2 -name '*.xcodeproj' | head -n 1)
+          PROJ=$(find xcode -maxdepth 3 -name '*.xcodeproj' | head -n 1)
           echo "Project: $PROJ"
-          SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{getline; print $1; exit}')
+          SCHEME="Unity-iPhone"
+          if ! xcodebuild -list -project "$PROJ" | grep -q "Unity-iPhone"; then
+            SCHEME=$(xcodebuild -list -project "$PROJ" | awk '/Schemes:/{f=1;next} f&&$1{print $1; exit}')
+          fi
           echo "Scheme: $SCHEME"
           xcodebuild -project "$PROJ" -scheme "$SCHEME" \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath dd \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build | tail -n 40
-          APP=$(find dd/Build/Products -maxdepth 2 -type d -name '*.app' | head -n 1)
+          APP=$(find dd/Build/Products -type d -name '*.app' | head -n 1)
           echo "APP: $APP"
           test -n "$APP"
           mkdir -p Payload
