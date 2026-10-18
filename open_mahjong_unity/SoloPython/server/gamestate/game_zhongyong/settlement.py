@@ -1,5 +1,8 @@
 """Score calculation and payer responsibility; no mutation of the live hand."""
-from ...game_calculation.zhongyong import HandContext, score_hand
+try:
+    from ...game_calculation.zhongyong import HandContext, score_hand
+except ImportError:  # 单机裁剪包不含中庸计算模块；杭州/萧山引擎使用各自结算，不经过本类
+    HandContext = score_hand = None
 from ..game_jiandan.settlement import JiandanSettlementPolicy
 
 class ZhongyongSettlementPolicy:

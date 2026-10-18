@@ -22,6 +22,7 @@ import logging
 import os
 import struct
 import sys
+import uuid
 
 # 让 `server` 包可被导入（本文件位于 open_mahjong_server/ 下，与 server/ 同级）
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -464,9 +465,12 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             step_timer=int(opts.get("step_timer") or 20),
             round_timer=int(opts.get("round_timer") or 300),
             rule=rule, sub_rule=opts.get("sub_rule"), opts=opts)
-        # 国标引擎会调用 db_manager 存取段位/牌谱（单机空实现），杭州/萧山不查库传 None
+        # 国标引擎会调用 db_manager 存取段位/牌谱（单机空实现），杭州/萧山不查库传 None。
+        # gamestate_id 每局必须唯一：客户端按它区分新旧对局并重置询问时钟残留，
+        # 固定值会让「离开房间重建后再开局」沿用上一场的 tick 状态，真人出牌被服务端丢弃。
         state = engine(server, room_data, calculation,
-                       _DbStub() if rule == GUOBIAO_RULE else None, "solo-1")
+                       _DbStub() if rule == GUOBIAO_RULE else None,
+                       "solo-" + uuid.uuid4().hex[:8])
         try:
             from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing
             room_data.setdefault("bot_speed", DEFAULT_BOT_SPEED)

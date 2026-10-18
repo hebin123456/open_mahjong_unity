@@ -185,7 +185,9 @@ public class SoundManager : MonoBehaviour {
             int reportTile = tileId == 46 && jokerTile > 0 && jokerTile != 46 ? jokerTile : tileId;
             int color = reportTile / 10, value = reportTile % 10;
             if (color >= 1 && color <= 3 && value >= 1 && value <= 9) {
-                voiceKey = $"mjt{color}_{value}";
+                // 音源文件 mjt1_x 实际录的是筒、mjt3_x 录的是万（录制时万/筒标反），此处对调修正。
+                int voiceColor = color == 1 ? 3 : color == 3 ? 1 : color;
+                voiceKey = $"mjt{voiceColor}_{value}";
             } else if (reportTile >= 41 && reportTile <= 47) {
                 voiceKey = $"mjt4_{(reportTile == 47 ? 6 : reportTile - 40)}";
             } else {
