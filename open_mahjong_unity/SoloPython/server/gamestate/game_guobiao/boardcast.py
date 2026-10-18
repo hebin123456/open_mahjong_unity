@@ -756,7 +756,11 @@ async def broadcast_game_end(self):
         if active_flush is not None and active_flush[0] is not asyncio.current_task():
             await asyncio.shield(active_flush[1])
         await finalize_claim_protection(self, _send_do_action_payload_to_viewer)
-    from ...match.settlement import rating_result_fields
+    try:
+        from ...match.settlement import rating_result_fields
+    except ImportError:  # 单机版不含 match 模块：无排位字段
+        def rating_result_fields(player):
+            return {}
     self.server_action_tick += 1
     
     # 构建玩家最终数据字典，键为座位索引字符串 "0"～"3"（同分并列名次时 rank 可能重复，故不能用名次作键）

@@ -13,6 +13,15 @@ try:
     from .guobiao_kshen_hepai_check import Kshen_Hepai_Check
     from .guobiao_lanshi_hepai_check import Lanshi_Hepai_Check
     from .gb_tingpai_check import Chinese_Tingpai_Check
+except ImportError:  # 线上旧部署把本目录加入 sys.path 的裸 import 方式
+    from guobiao_hepai_check import Chinese_Hepai_Check, PlayerTiles  # type: ignore
+    from guobiao_xiaolin_hepai_check import Xiaolin_Hepai_Check  # type: ignore
+    from guobiao_kshen_hepai_check import Kshen_Hepai_Check  # type: ignore
+    from guobiao_lanshi_hepai_check import Lanshi_Hepai_Check  # type: ignore
+    from gb_tingpai_check import Chinese_Tingpai_Check  # type: ignore
+
+# 其他规则检查器：单机裁剪包不含对应目录，缺失时置 None（对应规则引擎同样不打包）
+try:
     from .classical.classical_hepai_check import Classical_Hepai_Check
     from .classical.classical_tingpai_check import Classical_Tingpai_Check
     from .classical.classical_fushu_check import Classical_Fushu_Check
@@ -22,31 +31,23 @@ try:
     from .sichuan.sichuan_tingpai_check import Sichuan_Tingpai_Check
     from .sichuan.xueliu_hepai_check import Xueliu_Hepai_Check, Xueliu_Tingpai_Check
     from .sichuan.xueliu_rules import xueliu_base_from_fan
-    from .jiandan import HandContext as JiandanHandContext, score_hand as jiandan_score_hand, tingpai_check as jiandan_tingpai_check
     from .changsha.changsha_hepai_check import Changsha_Hepai_Check, changsha_base_from_fans
     from .changsha.changsha_tingpai_check import Changsha_Tingpai_Check
     from .taiwan.taiwan_hepai_check import Taiwan_Hepai_Check
     from .taiwan.taiwan_tingpai_check import Taiwan_Tingpai_Check
 except ImportError:
-    from guobiao_hepai_check import Chinese_Hepai_Check, PlayerTiles  # type: ignore
-    from guobiao_xiaolin_hepai_check import Xiaolin_Hepai_Check  # type: ignore
-    from guobiao_kshen_hepai_check import Kshen_Hepai_Check  # type: ignore
-    from guobiao_lanshi_hepai_check import Lanshi_Hepai_Check  # type: ignore
-    from gb_tingpai_check import Chinese_Tingpai_Check  # type: ignore
-    from classical.classical_hepai_check import Classical_Hepai_Check  # type: ignore
-    from classical.classical_tingpai_check import Classical_Tingpai_Check  # type: ignore
-    from classical.classical_fushu_check import Classical_Fushu_Check  # type: ignore
-    from riichi.riichi_hepai_check import Riichi_Hepai_Check  # type: ignore
-    from riichi.riichi_tingpai_check import Riichi_Tingpai_Check  # type: ignore
-    from sichuan.sichuan_hepai_check import Sichuan_Hepai_Check, sichuan_base_from_fan  # type: ignore
-    from sichuan.sichuan_tingpai_check import Sichuan_Tingpai_Check  # type: ignore
-    from sichuan.xueliu_hepai_check import Xueliu_Hepai_Check, Xueliu_Tingpai_Check  # type: ignore
-    from sichuan.xueliu_rules import xueliu_base_from_fan  # type: ignore
-    from jiandan import HandContext as JiandanHandContext, score_hand as jiandan_score_hand, tingpai_check as jiandan_tingpai_check  # type: ignore
-    from changsha.changsha_hepai_check import Changsha_Hepai_Check, changsha_base_from_fans  # type: ignore
-    from changsha.changsha_tingpai_check import Changsha_Tingpai_Check  # type: ignore
-    from taiwan.taiwan_hepai_check import Taiwan_Hepai_Check  # type: ignore
-    from taiwan.taiwan_tingpai_check import Taiwan_Tingpai_Check  # type: ignore
+    Classical_Hepai_Check = Classical_Tingpai_Check = Classical_Fushu_Check = None
+    Riichi_Hepai_Check = Riichi_Tingpai_Check = None
+    Sichuan_Hepai_Check = Sichuan_Tingpai_Check = sichuan_base_from_fan = None
+    Xueliu_Hepai_Check = Xueliu_Tingpai_Check = xueliu_base_from_fan = None
+    Changsha_Hepai_Check = changsha_base_from_fans = Changsha_Tingpai_Check = None
+    Taiwan_Hepai_Check = Taiwan_Tingpai_Check = None
+
+# 简单规则（单数雀）：单独降级，缺失时对应方法不可用
+try:
+    from .jiandan import HandContext as JiandanHandContext, score_hand as jiandan_score_hand, tingpai_check as jiandan_tingpai_check
+except ImportError:
+    JiandanHandContext = jiandan_score_hand = jiandan_tingpai_check = None
 
 # Qingque13 C# 桥接模块
 try:
@@ -81,19 +82,20 @@ class GameCalculationService:
         self._kshen_hepai_check = Kshen_Hepai_Check()
         self._lanshi_hepai_check = Lanshi_Hepai_Check()
         self._tingpai_check = Chinese_Tingpai_Check()
-        self._classical_hepai_check = Classical_Hepai_Check()
-        self._classical_tingpai_check = Classical_Tingpai_Check()
-        self._classical_fushu_check = Classical_Fushu_Check()
-        self._riichi_hepai_check = Riichi_Hepai_Check()
-        self._riichi_tingpai_check = Riichi_Tingpai_Check()
-        self._sichuan_hepai_check = Sichuan_Hepai_Check()
-        self._sichuan_tingpai_check = Sichuan_Tingpai_Check()
-        self._xueliu_hepai_check = Xueliu_Hepai_Check()
-        self._xueliu_tingpai_check = Xueliu_Tingpai_Check()
-        self._changsha_hepai_check = Changsha_Hepai_Check()
-        self._changsha_tingpai_check = Changsha_Tingpai_Check()
-        self._taiwan_hepai_check = Taiwan_Hepai_Check()
-        self._taiwan_tingpai_check = Taiwan_Tingpai_Check()
+        # 其他规则检查实例：单机裁剪包缺失对应模块时置 None（相应引擎不会调用）
+        self._classical_hepai_check = Classical_Hepai_Check() if Classical_Hepai_Check else None
+        self._classical_tingpai_check = Classical_Tingpai_Check() if Classical_Tingpai_Check else None
+        self._classical_fushu_check = Classical_Fushu_Check() if Classical_Fushu_Check else None
+        self._riichi_hepai_check = Riichi_Hepai_Check() if Riichi_Hepai_Check else None
+        self._riichi_tingpai_check = Riichi_Tingpai_Check() if Riichi_Tingpai_Check else None
+        self._sichuan_hepai_check = Sichuan_Hepai_Check() if Sichuan_Hepai_Check else None
+        self._sichuan_tingpai_check = Sichuan_Tingpai_Check() if Sichuan_Tingpai_Check else None
+        self._xueliu_hepai_check = Xueliu_Hepai_Check() if Xueliu_Hepai_Check else None
+        self._xueliu_tingpai_check = Xueliu_Tingpai_Check() if Xueliu_Tingpai_Check else None
+        self._changsha_hepai_check = Changsha_Hepai_Check() if Changsha_Hepai_Check else None
+        self._changsha_tingpai_check = Changsha_Tingpai_Check() if Changsha_Tingpai_Check else None
+        self._taiwan_hepai_check = Taiwan_Hepai_Check() if Taiwan_Hepai_Check else None
+        self._taiwan_tingpai_check = Taiwan_Tingpai_Check() if Taiwan_Tingpai_Check else None
 
     def Qingque_hepai_check(
         self,

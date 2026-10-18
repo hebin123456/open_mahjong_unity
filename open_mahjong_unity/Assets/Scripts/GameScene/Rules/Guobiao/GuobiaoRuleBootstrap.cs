@@ -8,7 +8,7 @@ internal static class GuobiaoRuleBootstrap {
             DefaultSubRule = "guobiao/standard",
             RulebookPath = (subRule, config) => subRule == "guobiao/lanshi" ? "/rulebook/guobiao-lanshi" : "/rulebook/guobiao",
             DisplayName = "国标麻将",
-            LobbyOrder = 0,
+            LobbyOrder = 14,
             LobbySubRules = GuobiaoLobby.SubRules,
             CreateRoomDefaults = GuobiaoLobby.Defaults(),
             HasRankedStats = true,

@@ -11,7 +11,11 @@ from ..public.round_end_timing import (
     liuju_ready_wait_seconds,
 )
 from ..public.ready_phase import run_hu_result_ready_phase
-from ...database.fulu_utils import record_fulu_rounds_for_players
+try:
+    from ...database.fulu_utils import record_fulu_rounds_for_players
+except ImportError:  # 单机版：副露承包记录为空操作
+    def record_fulu_rounds_for_players(*args, **kwargs):
+        return None
 
 SUB_RULE = "guobiao/blood_battle"
 RON_ACTIONS = frozenset(("hu_first", "hu_second", "hu_third"))

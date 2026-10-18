@@ -43,9 +43,16 @@ from .sanma import SUB_RULE as SANMA_SUB_RULE, standard_score_changes, cuohe_pay
 from .buhua_broadcast import HAND_SETTLE_GAP_SEC, perform_buhua_and_broadcast
 from ..public.game_record_manager import init_game_record, init_game_round, player_action_record_deal, player_action_record_hu, player_action_record_liuju, player_action_record_round_end, end_game_record, build_score_changes_by_seat, build_score_changes_dict, capture_player_entry_order, player_action_record_reset, remember_local_record_detail
 from ...game_calculation.game_calculation_service import GameCalculationService
-from ...database.db_manager import DatabaseManager
+try:
+    from ...database.db_manager import DatabaseManager
+except ImportError:  # 单机版不含 database 模块：不建库（调用点以 None/返回值 None 容错）
+    DatabaseManager = None
 from ..public.random_seed_manager import setup_random_seed_system
-from ...database.fulu_utils import record_fulu_rounds_for_players
+try:
+    from ...database.fulu_utils import record_fulu_rounds_for_players
+except ImportError:  # 单机版：副露承包记录为空操作
+    def record_fulu_rounds_for_players(*args, **kwargs):
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -988,7 +995,11 @@ class GuobiaoGameState:
         player_count = len(self.player_list)
 
         # 排位赛 PT 计算（同名次均摊其占用名次区间的加/扣分）
-        from ...match.settlement import settle_ranked_game
+        try:
+            from ...match.settlement import settle_ranked_game
+        except ImportError:  # 单机版不含 match 模块：无排位结算
+            def settle_ranked_game(state):
+                return None
         is_match = self.room_type == "match"
         match_queue_type = getattr(self, 'match_queue_type', None)
         match_type = settle_ranked_game(self)

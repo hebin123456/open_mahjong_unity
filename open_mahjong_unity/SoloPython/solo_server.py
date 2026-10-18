@@ -58,12 +58,23 @@ SOLO_INSTANCE_ID = "solo-instance-1"
 BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特"}
 
 # 大厅可选规则：萧山麻将完全复用杭州引擎，引擎内部恒按 hangzhou 处理；
+# 国标麻将使用独立的 GuobiaoGameState 引擎与 gamestate/GB/* 协议通道。
 # 这里记录用户在建房时选择的大厅规则，仅用于对外消息与房间信息的展示名。
 HANGZHOU_RULE = "hangzhou"
 HANGZHOU_SUB_RULE = "hangzhou/mil2025"
 XIAOSHAN_RULE = "xiaoshan"
 XIAOSHAN_SUB_RULE = "xiaoshan/xiaoshan"
-RULE_ROOM_NAMES = {HANGZHOU_RULE: "单机杭州麻将", XIAOSHAN_RULE: "单机萧山麻将"}
+GUOBIAO_RULE = "guobiao"
+GUOBIAO_SUB_RULE = "guobiao/standard"
+RULE_ROOM_NAMES = {HANGZHOU_RULE: "单机杭州麻将", XIAOSHAN_RULE: "单机萧山麻将",
+                   GUOBIAO_RULE: "单机国标麻将"}
+
+# 国标建房会透传给引擎的开局参数（起和番限制、花牌、天地人和、错和、鸣牌保护等）
+GUOBIAO_PASSTHROUGH_KEYS = (
+    "hepai_limit", "use_flowers", "tian_di_ren_he", "open_cuohe", "cuohe_type",
+    "claim_protection", "show_moqie_hint", "random_seed", "tips", "count_tips",
+    "pointer_tips", "allow_spectator", "tactical_call",
+)
 
 
 def _relabel_payload(payload: dict, rule: str, sub_rule: str) -> None:
@@ -84,10 +95,12 @@ def _relabel_payload(payload: dict, rule: str, sub_rule: str) -> None:
 
 
 def _resolve_room_rule(message: dict):
-    """从建房请求中解析大厅规则；仅杭州/萧山有效，其它一律回退杭州。"""
+    """从建房请求中解析大厅规则；仅杭州/萧山/国标有效，其它一律回退杭州。"""
     rule = message.get("rule") or HANGZHOU_RULE
     if rule == XIAOSHAN_RULE:
         return XIAOSHAN_RULE, message.get("sub_rule") or XIAOSHAN_SUB_RULE
+    if rule == GUOBIAO_RULE:
+        return GUOBIAO_RULE, message.get("sub_rule") or GUOBIAO_SUB_RULE
     return HANGZHOU_RULE, HANGZHOU_SUB_RULE
 
 
@@ -264,17 +277,23 @@ class SoloServer:
 # 单机对局启动
 # ----------------------------------------------------------------------------
 def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 300,
-                     rule: str = HANGZHOU_RULE) -> dict:
-    # 引擎按 room_rule/sub_rule 选择；萧山复用杭州栈，子规则用 xiaoshan/xiaoshan。
+                     rule: str = HANGZHOU_RULE, sub_rule: str = None,
+                     opts: dict = None) -> dict:
+    # 引擎按 room_rule/sub_rule 选择；萧山复用杭州栈，国标走独立引擎。
     if rule == XIAOSHAN_RULE:
-        room_rule, sub_rule = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
+        room_rule, sub = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
+    elif rule == GUOBIAO_RULE:
+        room_rule, sub = GUOBIAO_RULE, sub_rule or GUOBIAO_SUB_RULE
     else:
-        room_rule, sub_rule = HANGZHOU_RULE, HANGZHOU_SUB_RULE
-    return dict(
+        room_rule, sub = HANGZHOU_RULE, HANGZHOU_SUB_RULE
+    opts = opts or {}
+    # 国标三麻：1 真人 + 2 机器人，共 3 家
+    bots = BOT_USER_IDS[:2] if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else BOT_USER_IDS
+    data = dict(
         room_id="solo-" + room_rule,
         room_rule=room_rule,
-        sub_rule=sub_rule,
-        player_list=[HUMAN_USER_ID] + BOT_USER_IDS,   # 1 真人 + 3 机器人
+        sub_rule=sub,
+        player_list=[HUMAN_USER_ID] + bots,
         player_settings={HUMAN_USER_ID: {"username": HUMAN_USERNAME}},
         game_round=rounds,
         round_timer=round_timer,
@@ -284,6 +303,12 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
         random_seed=0,
         bot_speed="normal",
     )
+    if rule == GUOBIAO_RULE:
+        # 国标特有开局参数：起和番限制、花牌、天地人和、错和、鸣牌保护等
+        for key in GUOBIAO_PASSTHROUGH_KEYS:
+            if key in opts:
+                data[key] = opts[key]
+    return data
 
 
 def _player_settings() -> dict:
@@ -305,23 +330,26 @@ def _player_settings() -> dict:
 
 
 def _build_room_info(rounds: int, room_name: str = "", password: str = "",
-                     rule: str = HANGZHOU_RULE, sub_rule: str = HANGZHOU_SUB_RULE) -> dict:
+                     rule: str = HANGZHOU_RULE, sub_rule: str = HANGZHOU_SUB_RULE,
+                     opts: dict = None) -> dict:
     """客户端 RoomPanel 需要的 room_info。
 
-    直接放入 1 真人 + 3 机器人：客户端把 user_id<=10 视为机器人且默认「已准备」，
-    房主无需手动加机器人，人数一满「开始游戏」即可点击。
+    直接放入 1 真人 + 3 机器人（国标三麻为 1 真人 + 2 机器人）：客户端把
+    user_id<=10 视为机器人且默认「已准备」，人数一满「开始游戏」即可点击。
     """
-    players = [HUMAN_USER_ID] + BOT_USER_IDS
-    return {
+    opts = opts or {}
+    sanma = rule == GUOBIAO_RULE and (sub_rule or GUOBIAO_SUB_RULE) == "guobiao/sanma"
+    players = [HUMAN_USER_ID] + (BOT_USER_IDS[:2] if sanma else BOT_USER_IDS)
+    info = {
         "room_id": SOLO_ROOM_ID,
         "instance_id": SOLO_INSTANCE_ID,
         "room_type": "custom",
         "room_rule": rule,
         "sub_rule": sub_rule,
-        "hepai_limit": 0,
+        "hepai_limit": opts.get("hepai_limit", 8) if rule == GUOBIAO_RULE else 0,
         "tourist_limit": False,
         "allow_spectator": False,
-        "max_player": 4,
+        "max_player": 3 if sanma else 4,
         "player_list": players,
         "seat_list": players,
         "ready_list": [],
@@ -355,6 +383,12 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "",
         "wall_dragons": True,
         "wall_flowers": False,
     }
+    if rule == GUOBIAO_RULE:
+        # 国标建房参数回填到房间信息，供客户端房间面板展示
+        for key in GUOBIAO_PASSTHROUGH_KEYS:
+            if key in opts:
+                info[key] = opts[key]
+    return info
 
 
 async def _broadcast_room_info(server: SoloServer, conn: WsConnection):
@@ -412,15 +446,27 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
         # （否则大厅里再次点「开始游戏」会复用尚未结束的旧对局，界面毫无反应）。
         await _stop_solo_game(server)
         rule = server._label_rule
+        calculation = None
         if rule == XIAOSHAN_RULE:
             from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
             engine, label = XiaoshanGameState, "萧山"
+        elif rule == GUOBIAO_RULE:
+            from server.gamestate.game_guobiao.GuobiaoGameState import GuobiaoGameState
+            from server.game_calculation.game_calculation_service import GameCalculationService
+            engine, label = GuobiaoGameState, "国标"
+            calculation = GameCalculationService()  # 国标听牌/和牌校验依赖计算服务
         else:
             from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
             engine, label = HangzhouGameState, "杭州"
 
-        room_data = _build_room_data(rule=rule, **opts)
-        state = engine(server, room_data, None, None, "solo-1")
+        room_data = _build_room_data(
+            rounds=int(opts.get("rounds") or 4),
+            step_timer=int(opts.get("step_timer") or 20),
+            round_timer=int(opts.get("round_timer") or 300),
+            rule=rule, sub_rule=opts.get("sub_rule"), opts=opts)
+        # 国标引擎会调用 db_manager 存取段位/牌谱（单机空实现），杭州/萧山不查库传 None
+        state = engine(server, room_data, calculation,
+                       _DbStub() if rule == GUOBIAO_RULE else None, "solo-1")
         try:
             from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing
             room_data.setdefault("bot_speed", DEFAULT_BOT_SPEED)
@@ -495,24 +541,34 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
                            "room_list": [], "show_tip": bool(message.get("show_tip"))})
         return
 
-    if mtype in ("room/create_Hangzhou_room", "room/create_Xiaoshan_room"):
-        # 杭州/萧山共用同一引擎，仅按建房时选择的大厅规则决定对外展示名。
+    if mtype in ("room/create_Hangzhou_room", "room/create_Xiaoshan_room", "room/create_GB_room"):
+        # 杭州/萧山共用同一引擎，国标走独立引擎；仅按建房时选择的大厅规则决定引擎与展示名。
         rule, sub_rule = _resolve_room_rule(message)
         server._label_rule = rule
         server._label_sub_rule = sub_rule
         rounds = int(message.get("gameround") or 4)
-        server._room_opts = {"rounds": rounds}
+        opts = {"rounds": rounds, "sub_rule": sub_rule}
+        for key in ("round_timer", "step_timer"):
+            if message.get(key) is not None:
+                opts[key] = int(message[key])
+        if rule == GUOBIAO_RULE:
+            # 国标：透传起和番限制、花牌、天地人和、错和、鸣牌保护等开局参数
+            for key in GUOBIAO_PASSTHROUGH_KEYS:
+                if key in message and message[key] is not None:
+                    opts[key] = message[key]
+        server._room_opts = opts
         server._room = _build_room_info(rounds, room_name=message.get("roomname", ""),
-                                        password=message.get("password", ""), rule=rule, sub_rule=sub_rule)
+                                        password=message.get("password", ""), rule=rule, sub_rule=sub_rule,
+                                        opts=opts)
         logger.info("已创建单机房间 %s，规则=%s，玩家=%s", SOLO_ROOM_ID, rule, server._room["player_list"])
         await _send(conn, {"type": "room/create_room_done", "success": True,
                            "message": "房间创建成功", "room_info": server._room})
         return
 
     if mtype.startswith("room/create_"):
-        # 单机内嵌的引擎只实现了杭州麻将（萧山为其别名），其它规则直接拒绝
+        # 单机内嵌的引擎只实现了杭州麻将（萧山为其别名）与国标麻将，其它规则直接拒绝
         await _send(conn, {"type": "room/create_room_done", "success": False,
-                           "message": "单机版仅支持杭州麻将和萧山麻将"})
+                           "message": "单机版仅支持杭州麻将、萧山麻将和国标麻将"})
         return
 
     if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot",
@@ -553,8 +609,13 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         return
 
     if mtype.startswith("gamestate/"):
-        from server.gamestate.game_hangzhou.get_action import handle_action
-        await handle_action(server, conn.Connect_id, message, conn)
+        if mtype.startswith("gamestate/GB/"):
+            # 国标：复用线上 gamestate_router 的 GB 路由（动作/观战/投票等）
+            from server.gamestate.gamestate_router import handle_gamestate_message
+            await handle_gamestate_message(server, conn.Connect_id, message, conn)
+        else:
+            from server.gamestate.game_hangzhou.get_action import handle_action
+            await handle_action(server, conn.Connect_id, message, conn)
         return
 
     if mtype.startswith(("room/", "title/", "inventory/", "match/", "data/", "friend/", "event/")):

@@ -44,9 +44,10 @@ public static class CreateRoomRuleTextConfigCatalog {
             var result = new List<CreateRoomRuleTextConfig>();
             foreach (RuleManifest manifest in RuleRegistry.Ordered) {
                 if (manifest.HideFromLobby) continue;
-                // 单机版只开放杭州引擎入口：杭州麻将 + 萧山麻将，其余规则族一律不显示。
+                // 单机版开放杭州引擎入口与国标：杭州麻将、萧山麻将、国标麻将，其余规则族一律不显示。
                 if (ConfigManager.SoloMode && manifest.RuleId != HangzhouGameState.RuleId
-                    && manifest.RuleId != XiaoshanRuleBootstrap.RuleId) continue;
+                    && manifest.RuleId != XiaoshanRuleBootstrap.RuleId
+                    && manifest.RuleId != GuobiaoGameState.RuleId) continue;
                 result.Add(FromManifest(manifest));
             }
             return result;
