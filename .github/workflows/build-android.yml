@@ -1,4 +1,4 @@
-name: Build Android APK (Unity)
+name: Build Android APK + Windows
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         required: false
         default: '6000.4.7f1'
       releaseTag:
-        description: 'Release tag to publish the APK to (default: latest)'
+        description: 'Release tag to publish artifacts to (default: latest)'
         required: false
         default: 'latest'
   push:
@@ -65,8 +65,7 @@ jobs:
           versioning: None
           buildsPath: build
 
-      - name: Locate APK
-        id: apk
+      - name: Collect APK
         run: |
           echo "Found .apk files:"
           find build -type f -iname '*.apk' -print
@@ -75,18 +74,105 @@ jobs:
             echo "::error::No .apk file found under build/"
             exit 1
           fi
-          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
-          echo "apk_name=$(basename "$APK")" >> "$GITHUB_OUTPUT"
+          cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
           echo "APK: $APK"
 
-      - name: Publish APK to Release
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: ${{ github.workspace }}/Android.apk
+
+  build-windows:
+    name: Build Windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Fetch embedded Python runtime
+        run: |
+          URL="https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"
+          DEST="open_mahjong_unity/.cache/solo-python/python-3.10.11-embed-amd64"
+          mkdir -p "$DEST"
+          curl -fsSL "$URL" -o /tmp/python-embed.zip
+          unzip -q /tmp/python-embed.zip -d "$DEST"
+          test -f "$DEST/python.exe"
+          echo "Embedded Python ready at $DEST"
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-Windows-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-Windows-
+            Library-
+
+      - name: Build Windows
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+          targetPlatform: StandaloneWindows64
+          allowDirtyBuild: true
+          buildName: Windows
+          versioning: None
+          buildsPath: build
+
+      - name: Package Windows build
+        run: |
+          find build -maxdepth 3 -type f | head -n 60
+          EXE="$(find build -type f -iname '*.exe' | sort | head -n 1)"
+          if [ -z "$EXE" ]; then
+            echo "::error::No .exe file found under build/"
+            exit 1
+          fi
+          DIR="$(dirname "$EXE")"
+          echo "Packaging $DIR"
+          (cd "$DIR" && zip -r "$GITHUB_WORKSPACE/Windows.zip" .)
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-package
+          path: ${{ github.workspace }}/Windows.zip
+
+  publish:
+    name: Publish Release
+    needs: [ build-android, build-windows ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish to Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
-          echo "Publishing ${{ steps.apk.outputs.apk_name }} to release '$TAG'"
+          ls -R artifacts
+          echo "Publishing to release '$TAG'"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" \
-            --title "Android APK ($TAG)" \
+            --title "单机版 ($TAG)" \
             --notes "自动构建 · run #${{ github.run_number }} · commit ${GITHUB_SHA:0:8} · Unity ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}" \
-            "${{ steps.apk.outputs.apk_path }}"
+            "artifacts/android-apk/Android.apk" \
+            "artifacts/windows-package/Windows.zip"

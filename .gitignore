@@ -23,6 +23,8 @@
 !/open_mahjong_unity/SoloPython/
 # 单机版应用图标源文件（构建时注入 Android res/mipmap-*）
 !/open_mahjong_unity/SoloIcon/
+# 桌面单机版的嵌入式 Python 运行时缓存（CI/本机构建前下载，不进仓库）
+/open_mahjong_unity/.cache/
 /open_mahjong_unity/Assets/Resources/PerformanceTestRunInfo.json*
 /open_mahjong_unity/Assets/Resources/PerformanceTestRunSettings.json*
 
