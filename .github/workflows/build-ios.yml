@@ -133,8 +133,8 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.releaseTag || 'ios-latest' }}"
           echo "Publishing unsigned.ipa to release '$TAG'"
-          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" \
+          gh release delete "$TAG" --yes --cleanup-tag -R "$GITHUB_REPOSITORY" 2>/dev/null || true
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "Unsigned iOS IPA ($TAG)" \
             --notes "未签名 ipa · run #${{ github.run_number }} · commit ${GITHUB_SHA:0:8} · 用 Sideloadly/AltStore + 免费 Apple ID 自签后安装" \
             unsigned.ipa
