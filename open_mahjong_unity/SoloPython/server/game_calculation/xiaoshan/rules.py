@@ -24,13 +24,16 @@ DEFAULT_TOTAL_CAP = 32
 DEFAULT_DEALER_CAP = 3          # 2**3 = 8 倍连庄封顶
 BASE_SCORE = 1
 CLAIM_THRESHOLD = 3             # 累计吃碰三次形成承包关系
+# 开局积分（每人初始持有）：0 表示从零开始（旧对局/牌谱兼容）。
+STARTING_SCORES = (0, 50, 100, 200)
+DEFAULT_STARTING_SCORE = 0
 
 
 def normalize_config(raw=None):
-    """萧山房规可协商总倍率封顶；其余沿用杭州引擎的配置形状。"""
+    """萧山房规可协商总倍率封顶与开局积分；其余沿用杭州引擎的配置形状。"""
     if raw is None:
         raw = {}
-    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap"}:
+    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score"}:
         raise ValueError("萧山麻将没有其它馆规选项")
     version = raw.get("rule_version", RULE_VERSION)
     if version not in (RULE_VERSION, "mil-hangzhou-2025-om1"):
@@ -38,7 +41,10 @@ def normalize_config(raw=None):
     cap = raw.get("total_cap", DEFAULT_TOTAL_CAP)
     if cap not in (32, 64):
         raise ValueError("总倍率封顶只能为 32 或 64")
-    return {"rule_version": RULE_VERSION, "total_cap": cap}
+    starting = raw.get("starting_score", DEFAULT_STARTING_SCORE)
+    if starting not in STARTING_SCORES:
+        raise ValueError("开局积分只能为 50、100 或 200")
+    return {"rule_version": RULE_VERSION, "total_cap": cap, "starting_score": starting}
 
 
 @dataclass(frozen=True)

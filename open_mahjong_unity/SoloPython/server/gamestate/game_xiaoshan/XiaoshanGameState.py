@@ -38,6 +38,12 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         self.cai_lock_on_discard = False
         self.joker_indicator = 0
         self.total_cap = self.detailed_config.get("total_cap", xs.DEFAULT_TOTAL_CAP)
+        # 开局积分：每人初始持有（0 表示从零开始）；和牌结算按底分×倍率在其上增减。
+        self.starting_score = self.detailed_config.get("starting_score", xs.DEFAULT_STARTING_SCORE)
+        if self.starting_score:
+            for player in self.player_list:
+                player.score = self.starting_score
+            self.round_start_scores = [p.score for p in self.player_list]
         self.claim_from = [[0] * 4 for _ in range(4)]
 
     @staticmethod
@@ -193,4 +199,5 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         data["joker_indicator"] = self.joker_indicator
         data["claim_counts"] = [list(row) for row in self.claim_from]
         data["total_cap"] = self.total_cap
+        data["starting_score"] = self.starting_score
         return data

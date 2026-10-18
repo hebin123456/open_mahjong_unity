@@ -77,6 +77,9 @@ GUOBIAO_PASSTHROUGH_KEYS = (
     "pointer_tips", "allow_spectator", "tactical_call",
 )
 
+# 萧山馆规：开局积分、总倍率封顶（建房时由客户端下传，透传给引擎 detailed_config）
+XIAOSHAN_PASSTHROUGH_KEYS = ("total_cap", "starting_score")
+
 
 def _relabel_payload(payload: dict, rule: str, sub_rule: str) -> None:
     """把杭州引擎产生的对外消息重新标注为所选大厅规则（如萧山）。
@@ -311,6 +314,11 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 data[key] = opts[key]
+    elif rule == XIAOSHAN_RULE:
+        # 萧山馆规：开局积分与总倍率封顶，经 detailed_config 交引擎 normalize_config 校验
+        data["detailed_config"] = {
+            key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
+        }
     return data
 
 
@@ -391,6 +399,11 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "",
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 info[key] = opts[key]
+    elif rule == XIAOSHAN_RULE:
+        # 萧山馆规回填到房间信息，供客户端房间面板展示开局积分/倍率封顶
+        info["detailed_config"] = {
+            key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
+        }
     return info
 
 
@@ -560,6 +573,11 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         if rule == GUOBIAO_RULE:
             # 国标：透传起和番限制、花牌、天地人和、错和、鸣牌保护等开局参数
             for key in GUOBIAO_PASSTHROUGH_KEYS:
+                if key in message and message[key] is not None:
+                    opts[key] = message[key]
+        elif rule == XIAOSHAN_RULE:
+            # 萧山：透传开局积分、总倍率封顶
+            for key in XIAOSHAN_PASSTHROUGH_KEYS:
                 if key in message and message[key] is not None:
                     opts[key] = message[key]
         server._room_opts = opts
