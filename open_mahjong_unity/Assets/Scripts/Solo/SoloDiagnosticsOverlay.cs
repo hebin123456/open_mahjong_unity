@@ -46,9 +46,13 @@ public class SoloDiagnosticsOverlay : MonoBehaviour {
     private static string Condense(string message, LogType type) {
         if (string.IsNullOrEmpty(message)) return null;
         if (type == LogType.Error || type == LogType.Exception || type == LogType.Assert) {
-            int lineEnd = message.IndexOf('\n');
-            string head = lineEnd > 0 ? message.Substring(0, lineEnd) : message;
-            return "!! " + (head.Length > 140 ? head.Substring(0, 140) + "…" : head);
+            // Debug.LogError($"{e.Message}\n{e.StackTrace}") 的首行是异常文本，次行通常是第一条堆栈帧。
+            // 把首帧一并显示，才能看出是在哪个方法/哪一行抛的（面板窄，只保留一行）。
+            string[] parts = message.Split('\n');
+            string head = parts.Length > 0 ? parts[0] : message;
+            string frame = parts.Length > 1 ? parts[1].Trim() : "";
+            string composed = string.IsNullOrEmpty(frame) ? head : head + "  @" + frame;
+            return "!! " + (composed.Length > 160 ? composed.Substring(0, 160) + "…" : composed);
         }
         string messageType = ExtractType(message);
         if (messageType != null) return "收到 " + messageType;
