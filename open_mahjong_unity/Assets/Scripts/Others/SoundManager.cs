@@ -171,6 +171,36 @@ public class SoundManager : MonoBehaviour {
         audioSource.PlayOneShot(soundToPlay, volume * 0.4f);
     }
 
+    /// <summary>
+    /// 萧山方言报牌（男声）：报出打出的牌名（mjt1-3=万条筒，mjt4=东南西北中发白）。
+    /// 打出翻出的财神喊"飘"；打出白板时按其顶替的财神本牌报名（翻出白板时白板即财神）。
+    /// </summary>
+    public void PlayXiaoshanTileVoice(int tileId, int jokerTile) {
+        if (tileId <= 0) return;
+        string voiceKey;
+        if (jokerTile > 0 && tileId == jokerTile) {
+            voiceKey = "piao"; // 财神本尊：财飘
+        } else {
+            // 白板按顶替的财神牌报名；本项目 46=白、47=发，音源字牌顺序为东南西北中发白。
+            int reportTile = tileId == 46 && jokerTile > 0 && jokerTile != 46 ? jokerTile : tileId;
+            int color = reportTile / 10, value = reportTile % 10;
+            if (color >= 1 && color <= 3 && value >= 1 && value <= 9) {
+                voiceKey = $"mjt{color}_{value}";
+            } else if (reportTile >= 41 && reportTile <= 47) {
+                voiceKey = $"mjt4_{reportTile == 47 ? 6 : reportTile - 40}";
+            } else {
+                return;
+            }
+        }
+        AudioClip clip = Resources.Load<AudioClip>($"Sound/Xiaoshan/male/{voiceKey}");
+        if (clip == null) {
+            Debug.LogWarning($"未找到萧山报牌音效: Sound/Xiaoshan/male/{voiceKey}");
+            return;
+        }
+        float volume = ConfigManager.Instance.GetVoiceVolumeRatio();
+        audioSource.PlayOneShot(clip, volume);
+    }
+
     public void PlayPhysicsSound(/* Vector3 position, 物理音效发出位置 */string actionType){
         string fileName;
         if (actionType == "cut") {
