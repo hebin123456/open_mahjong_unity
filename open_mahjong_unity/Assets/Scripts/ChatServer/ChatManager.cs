@@ -53,6 +53,8 @@ public class ChatManager : MonoBehaviour {
     }
 
     private void ConnectChatServer() {
+        // 单机版不使用聊天：它连的是同一个内嵌服务端，第二条连接会对局用户造成干扰。
+        if (ConfigManager.SoloMode) return;
         if (isConnecting) return;
         if (websocket != null
             && (websocket.State == WebSocketState.Open

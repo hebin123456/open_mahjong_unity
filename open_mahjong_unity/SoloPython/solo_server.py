@@ -70,6 +70,11 @@ class WsConnection:
         self.closed = False
         self.user_id = None
         self.Connect_id = None
+        # 握手请求的 path（如 /game/<id>、/chat/<id>），用于区分对局连接与其它连接
+        self.path = ""
+        # 对局任务与连接读循环可能并发写同一 socket；不加锁会让两帧字节交错，
+        # 客户端解析出错后表现为「消息没到」。所有写出都串行化。
+        self._write_lock = asyncio.Lock()
         # 引擎通过 `connection.websocket.send_json()` 推送，故指向自身
         self.websocket = self
 
@@ -101,8 +106,9 @@ class WsConnection:
             header.append(127)
             header += struct.pack(">Q", n)
         try:
-            self.writer.write(bytes(header) + data)
-            await self.writer.drain()
+            async with self._write_lock:
+                self.writer.write(bytes(header) + data)
+                await self.writer.drain()
         except Exception:
             self.closed = True
             raise
@@ -147,10 +153,14 @@ async def read_frame(reader):
 
 
 async def _handshake(reader, writer):
-    """完成 HTTP Upgrade 握手，失败返回 None。"""
+    """完成 HTTP Upgrade 握手；成功返回请求 path，失败返回 None。"""
     raw = await reader.readuntil(b"\r\n\r\n")
+    text = raw.decode("utf-8", "replace")
+    lines = text.split("\r\n")
+    parts = lines[0].split(" ")
+    path = parts[1] if len(parts) >= 2 else ""
     headers = {}
-    for line in raw.decode("utf-8", "replace").split("\r\n")[1:]:
+    for line in lines[1:]:
         if ":" in line:
             k, v = line.split(":", 1)
             headers[k.strip().lower()] = v.strip()
@@ -167,7 +177,7 @@ async def _handshake(reader, writer):
         f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
     ).encode())
     await writer.drain()
-    return True
+    return path
 
 
 # ----------------------------------------------------------------------------
@@ -391,6 +401,11 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         return
 
     if mtype in ("login", "register"):
+        # 聊天连接也会发 login；若让它注册成对局用户，引擎会把对局消息推到聊天 socket，
+        # 对局界面（game socket）就永远收不到 game_start。故非对局连接一律不注册。
+        if "/chat" in (conn.path or ""):
+            _note("忽略聊天连接登录 " + str(conn.Connect_id))
+            return
         conn.user_id = HUMAN_USER_ID
         server.players[conn.Connect_id] = conn
         server.user_id_to_connection[HUMAN_USER_ID] = conn
@@ -489,11 +504,13 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
 
 
 async def _serve_connection(server: SoloServer, reader, writer):
-    if await _handshake(reader, writer) is None:
+    path = await _handshake(reader, writer)
+    if path is None:
         return
     conn = WsConnection(reader, writer)
+    conn.path = path
     conn.Connect_id = f"solo-{id(conn)}"
-    logger.info("客户端已连接 %s", conn.Connect_id)
+    logger.info("客户端已连接 %s path=%s", conn.Connect_id, path)
     _note("客户端已连接 " + str(conn.Connect_id))
     try:
         while True:
