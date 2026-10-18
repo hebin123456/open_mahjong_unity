@@ -50,13 +50,16 @@ jobs:
       - name: Prepare Android signing
         env:
           KS_B64_SECRET: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS_SECRET: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          KS_ALIAS_SECRET: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
         run: |
-          if [ -n "$KS_B64_SECRET" ]; then
-            # 优先使用仓库 secrets 里的正式 keystore
+          # 三个 secret 齐全才用 secrets keystore；缺任何一个都回退入库 keystore，
+          # 避免 base64 有值但密码为空导致 Unity 报 "please provide passwords"。
+          if [ -n "$KS_B64_SECRET" ] && [ -n "$KS_PASS_SECRET" ] && [ -n "$KS_ALIAS_SECRET" ]; then
             printf '%s' "$KS_B64_SECRET" | base64 -d > /tmp/openmahjong.keystore
             echo "KEYSTORE_B64=$KS_B64_SECRET" >> "$GITHUB_ENV"
-            echo "KEYSTORE_PASS=${{ secrets.ANDROID_KEYSTORE_PASS }}" >> "$GITHUB_ENV"
-            echo "KEYSTORE_ALIAS=${{ secrets.ANDROID_KEYSTORE_ALIAS }}" >> "$GITHUB_ENV"
+            echo "KEYSTORE_PASS=$KS_PASS_SECRET" >> "$GITHUB_ENV"
+            echo "KEYSTORE_ALIAS=$KS_ALIAS_SECRET" >> "$GITHUB_ENV"
             echo "Using keystore from secrets"
           else
             # 回退：使用入库 keystore（私有仓库内部使用，保证所有构建签名一致）
@@ -64,7 +67,7 @@ jobs:
             echo "KEYSTORE_B64=$B64" >> "$GITHUB_ENV"
             echo "KEYSTORE_PASS=openmahjong2025" >> "$GITHUB_ENV"
             echo "KEYSTORE_ALIAS=openmahjong" >> "$GITHUB_ENV"
-            echo "Using in-repo keystore"
+            echo "Using in-repo keystore (secrets incomplete: b64=${KS_B64_SECRET:+set} pass=${KS_PASS_SECRET:+set} alias=${KS_ALIAS_SECRET:+set})"
           fi
 
       - name: Build Android APK

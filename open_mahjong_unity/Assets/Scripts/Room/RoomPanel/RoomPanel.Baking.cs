@@ -100,8 +100,12 @@ public partial class RoomPanel {
     public void ValidateBotSpeedUi() {
         if (startButton.transform.parent.Find("ClaimProtection"))
             throw new InvalidOperationException("鸣牌保护应只在创建房间面板中设置。");
+        // 运行时 EnsureBotSpeedOptions 会把旧 4 档同步成新 6 档；两种烘焙结果都合法。
+        var baked = botSpeedDropdown?.options.Select(option => option.text).ToList();
+        var legacy = new[] { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）" };
+        var current = new[] { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" };
         if (!botSpeedDropdown || botSpeedDropdown.transform.parent.name != "BotSpeedRow"
-            || !botSpeedDropdown.options.Select(option => option.text).SequenceEqual(new[] { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" })
+            || !(baked.SequenceEqual(legacy) || baked.SequenceEqual(current))
             || botSpeedDropdown.template.rect.height < 216
             || botSpeedDropdown.transform.parent.parent != startButton.transform.parent)
             throw new InvalidOperationException("房间面板机器人速度控件未烘焙。");
