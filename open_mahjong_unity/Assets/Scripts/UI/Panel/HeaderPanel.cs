@@ -82,19 +82,20 @@ public class HeaderPanel : MonoBehaviour {
     }
 
     /// <summary>
-    /// 单机版只保留打牌相关入口（房间/设置/场景设置/关于我们），
-    /// 好友、观战、数据、牌谱、匹配、赛事&基地、通知、登出等大厅功能入口一律隐藏。
+    /// 单机版只保留打牌相关入口（房间/战绩/设置/场景设置/关于我们），
+    /// 好友、观战、数据、匹配、赛事&基地、通知、登出等大厅功能入口一律隐藏；
+    /// 牌谱入口在单机下改为「战绩」（本地历史战绩，见 LocalBattleRecordPanel）。
     /// </summary>
     private void ApplySoloModeVisibility() {
         if (!ConfigManager.SoloMode) return;
         SetNavActive(friendButton, false);
         SetNavActive(spectatorButton, false);
         SetNavActive(playerDataButton, false);
-        SetNavActive(recordButton, false);
         SetNavActive(matchButton, false);
         SetNavActive(eventButton, false);
         SetNavActive(noticeButton, false);
         SetNavActive(logoutButton, false);
+        // recordButton 保留：单机下作为「战绩」入口
     }
 
     private static void SetNavActive(HeaderButton button, bool active) {
@@ -145,6 +146,10 @@ public class HeaderPanel : MonoBehaviour {
         WindowsManager.Instance.SwitchWindow("room");
     }
     private void Record() {
+        if (ConfigManager.SoloMode) {
+            LocalBattleRecordPanel.Show();
+            return;
+        }
         WindowsManager.Instance.SwitchWindow("record");
         RecordPanel.Instance.OpenAndReload();
     }
@@ -225,7 +230,7 @@ public class HeaderPanel : MonoBehaviour {
         SetButtonLabel(friendButton, HeaderNavItem.Friend);
         SetButtonLabel(spectatorButton, HeaderNavItem.Spectator);
         SetButtonLabel(playerDataButton, HeaderNavItem.PlayerData);
-        SetButtonLabel(recordButton, HeaderNavItem.Record);
+        SetButtonLabel(recordButton, ConfigManager.SoloMode ? HeaderNavItem.SoloRecord : HeaderNavItem.Record);
         SetButtonLabel(matchButton, HeaderNavItem.Match);
         SetButtonLabel(eventButton, HeaderNavItem.Event);
         SetButtonLabel(sceneConfigButton, HeaderNavItem.SceneConfig);

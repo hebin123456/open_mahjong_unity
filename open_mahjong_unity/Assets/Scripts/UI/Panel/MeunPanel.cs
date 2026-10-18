@@ -25,6 +25,12 @@ public class MeunPanel : MonoBehaviour {
             // 单机版没有排位匹配大厅功能，隐藏主菜单上的匹配入口。
             if (ConfigManager.SoloMode) matchEntryButton.gameObject.SetActive(false);
         }
+        // 单机版隐藏主菜单上的联机残留：「匹配人数(N)」文本与背包入口（装扮/道具走服务器，单机无数据）。
+        if (ConfigManager.SoloMode) {
+            if (matchPlayerCountText != null) matchPlayerCountText.gameObject.SetActive(false);
+            var inventory = transform.Find("GameObject/InventoryButton");
+            if (inventory != null) inventory.gameObject.SetActive(false);
+        }
     }
 
     private void OnEnable() {

@@ -25,6 +25,14 @@ public class UserContainer : MonoBehaviour {
         }
         Instance = this;
         rankSwitchButton?.onClick.AddListener(CycleRule);
+        // 单机版没有排位段位体系，隐藏段位/进度条/PT 文本与切换按钮；头像点击会打开联机资料页，一并禁用
+        if (ConfigManager.SoloMode) {
+            if (rankText != null) rankText.gameObject.SetActive(false);
+            if (rankProgressBar != null) rankProgressBar.gameObject.SetActive(false);
+            if (rankScoreText != null) rankScoreText.gameObject.SetActive(false);
+            if (rankSwitchButton != null) rankSwitchButton.gameObject.SetActive(false);
+            if (profileImage != null) profileImage.raycastTarget = false;
+        }
     }
 
     private void OnEnable() {

@@ -16,14 +16,21 @@ public class NowPlayer : MonoBehaviour {
             return;
         }
         Instance = this;
+        // 单机版没有服务器统计（界面残留的是场景默认假数据），整块隐藏且不启动轮询
+        if (ConfigManager.SoloMode) {
+            gameObject.SetActive(false);
+            return;
+        }
     }
 
     private void OnEnable() {
+        if (ConfigManager.SoloMode) return;
         NetworkPollingManager.Instance.StartServerStatsPolling();
     }
 
     private void OnDisable() {
-        NetworkPollingManager.Instance.StopServerStatsPolling();
+        if (ConfigManager.SoloMode) return;
+        if (NetworkPollingManager.Instance != null) NetworkPollingManager.Instance.StopServerStatsPolling();
     }
 
     // 显示服务器统计信息

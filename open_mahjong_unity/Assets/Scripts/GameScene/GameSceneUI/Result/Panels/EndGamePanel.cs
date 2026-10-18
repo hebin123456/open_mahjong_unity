@@ -56,6 +56,12 @@ public class EndGamePanel : MonoBehaviour {
         AutoAction.Instance?.DismissTimeoutReturnIfAny();
         fadeInEffect?.PlayFadeIn();
 
+        // 单机版：整局结束落盘一条本地战绩（最新在前），供顶栏「战绩」面板展示
+        if (ConfigManager.SoloMode) {
+            string ruleName = RuleRegistry.Resolve(GameSession.Current.RoomRule, GameSession.Current.SubRule)?.DisplayName;
+            LocalBattleRecordStore.RecordFromEndGame(player_final_data, ruleName);
+        }
+
         var sorted = player_final_data
             .Select(kv => kv.Value)
             .OrderBy(v => System.Convert.ToInt32(v["rank"]))
