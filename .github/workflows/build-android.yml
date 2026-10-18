@@ -137,7 +137,10 @@ jobs:
       - name: Package Windows build
         run: |
           find build -maxdepth 3 -type f | head -n 60
-          EXE="$(find build -type f -iname '*.exe' | sort | head -n 1)"
+          # 只取构建根目录下的启动器 exe（排除 UnityCrashHandler 与 SoloRuntime 内嵌的 python.exe），
+          # 其所在目录即完整产物目录（含 *_Data、SoloRuntime、MonoBleedingEdge）
+          EXE="$(find build -maxdepth 2 -type f -iname '*.exe' \
+                 -not -iname 'UnityCrashHandler*' -not -ipath '*/SoloRuntime/*' | sort | head -n 1)"
           if [ -z "$EXE" ]; then
             echo "::error::No .exe file found under build/"
             exit 1
