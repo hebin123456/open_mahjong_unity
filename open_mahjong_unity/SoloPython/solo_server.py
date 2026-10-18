@@ -290,8 +290,10 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
     opts = opts or {}
     # 国标三麻：1 真人 + 2 机器人，共 3 家
     bots = BOT_USER_IDS[:2] if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else BOT_USER_IDS
+    # 国标引擎的 GameInfo（服务端与客户端）都要求 room_id 为整数，字符串会校验失败
+    # 导致 game_start 发不出去（表现为创建房间后点开始游戏无反应）；杭州引擎不受此限。
     data = dict(
-        room_id="solo-" + room_rule,
+        room_id=0 if rule == GUOBIAO_RULE else "solo-" + room_rule,
         room_rule=room_rule,
         sub_rule=sub,
         player_list=[HUMAN_USER_ID] + bots,
