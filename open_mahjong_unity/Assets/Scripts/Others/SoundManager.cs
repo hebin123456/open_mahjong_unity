@@ -187,7 +187,7 @@ public class SoundManager : MonoBehaviour {
             if (color >= 1 && color <= 3 && value >= 1 && value <= 9) {
                 voiceKey = $"mjt{color}_{value}";
             } else if (reportTile >= 41 && reportTile <= 47) {
-                voiceKey = $"mjt4_{reportTile == 47 ? 6 : reportTile - 40}";
+                voiceKey = $"mjt4_{(reportTile == 47 ? 6 : reportTile - 40)}";
             } else {
                 return;
             }
