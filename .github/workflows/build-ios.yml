@@ -42,10 +42,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: open_mahjong_unity/Library
-          key: Library-iOS-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          key: Library-iOS-v2-${{ github.ref_name }}-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
           restore-keys: |
-            Library-iOS-
-            Library-
+            Library-iOS-v2-${{ github.ref_name }}-
+            Library-iOS-v2-
 
       - name: Build iOS (export Xcode project)
         uses: game-ci/unity-builder@v4
