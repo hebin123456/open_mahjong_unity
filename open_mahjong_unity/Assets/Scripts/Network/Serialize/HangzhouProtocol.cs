@@ -12,7 +12,9 @@ public class HangzhouHints {
 public sealed class HangzhouInfo : HangzhouHints {
     public string rule_version, phase;
     public int base_hand_tiles, hand_number, dealer_streak, dealer_multiplier, wall_count, burned_count;
+    // joker_indicator：萧山每副开局翻出的那张牌（0 表示本规则不翻财，如杭州恒为白板）。
     public int[] dice, joker_tiles, cai_discard_locks, cai_piao_counts, chi_counts, ten_winds_counts, seat_to_original;
+    public int joker_indicator;
     public bool[] forced_draw_discard;
     public bool match_finishing, self_has_draw_slot;
     public JObject ledger;

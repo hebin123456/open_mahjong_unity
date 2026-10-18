@@ -29,10 +29,18 @@ public sealed class HangzhouStatePanel : MonoBehaviour {
         instance.info=value; instance.gameObject.SetActive(true); instance.Refresh();
     }
     public static void Hide() { if (instance != null) { instance.gameObject.SetActive(false); instance.info=null; } }
+    /// <summary>财神展示：杭州恒为白板；萧山每副开局翻出的牌一并列出（白板顶替为财神）。</summary>
+    private static string JokerLabel(HangzhouInfo value) {
+        int indicator = value?.joker_indicator ?? 0;
+        if (indicator <= 0 || indicator == JokerWhite) return "白板";
+        return "白板＋" + WenzhouText.Tile(indicator);
+    }
+    private const int JokerWhite = 46;
     public static string Describe(HangzhouInfo value) {
         if (value == null) return "";
         var text=new StringBuilder();
-        text.AppendLine($"白板财神 · {Math.Max(1,value.dealer_streak)}老庄 ×{Math.Max(2,value.dealer_multiplier)}");
+        text.AppendLine($"财神 {JokerLabel(value)} · {Math.Max(1,value.dealer_streak)}老庄 ×{Math.Max(2,value.dealer_multiplier)}");
+        if (value.joker_indicator > 0) text.AppendLine($"本副翻财：{WenzhouText.Tile(value.joker_indicator)}（白板顶替为财神，两者皆可代任意牌）");
         int Count(int[] values,int i) => values!=null && i<values.Length ? values[i] : 0;
         string Seat(int i) { if(i<0 || i>3) return "?"; int original=value.seat_to_original!=null && i<value.seat_to_original.Length ? value.seat_to_original[i] : i;return new[]{"东起","南起","西起","北起"}[Mathf.Clamp(original,0,3)]; }
         for (int seat=0;seat<4;seat++) {
@@ -62,7 +70,7 @@ public sealed class HangzhouStatePanel : MonoBehaviour {
         return text.ToString().TrimEnd();
     }
     private void Refresh() {
-        caption.text=$"白板财神 · {Math.Max(1,info.dealer_streak)}老庄 · {(expanded ? "收起" : "详情")}";
+        caption.text=$"财神 {JokerLabel(info)} · {Math.Max(1,info.dealer_streak)}老庄 · {(expanded ? "收起" : "详情")}";
         body.text=Describe(info); body.gameObject.SetActive(expanded);
         ((RectTransform)transform).sizeDelta=new Vector2(410,expanded ? Mathf.Min(450,body.preferredHeight+62) : 36);
     }

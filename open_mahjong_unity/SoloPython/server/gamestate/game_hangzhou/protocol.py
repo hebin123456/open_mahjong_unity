@@ -3,7 +3,6 @@
 import math
 
 from ..game_zhongyong import boardcast as wire
-from ...game_calculation.hangzhou.rules import JOKER
 from .actions import kong_tiles, legal_cuts
 from .hints import private_hints
 from .state_machine import Phase as P
@@ -14,7 +13,7 @@ class Protocol:
         ended = self.machine.phase in (P.END, P.READY, P.FINISHED)
         data = dict(rule_version=self.rule_version, phase=self.game_status, base_hand_tiles=13,
                     hand_number=self.round_index, dealer_streak=self.dealer_streak,
-                    dealer_multiplier=2 ** self.dealer_streak, joker_tiles=[JOKER], dice=list(self.dice),
+                    dealer_multiplier=2 ** self.dealer_streak, joker_tiles=sorted(self.jokers), dice=list(self.dice),
                     cai_discard_locks=sorted(self.cai_discard_locks),
                     forced_draw_discard=[self.is_cai_locked(i) for i in range(4)],
                     cai_piao_counts=[p.cai_piao_count for p in self.player_list],

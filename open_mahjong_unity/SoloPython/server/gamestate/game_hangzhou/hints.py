@@ -16,11 +16,12 @@ class HintRequest:
     melds: tuple
     cuts: tuple
     rule_version: str
+    jokers: tuple = ()
 
 
 @lru_cache(maxsize=1024)
-def _waits(hand, melds):
-    return tuple(sorted(waiting_tiles(hand, melds)))
+def _waits(hand, melds, jokers=()):
+    return tuple(sorted(waiting_tiles(hand, melds, jokers or (46,))))
 
 
 def current_request(state, index, *, for_record=False):
@@ -30,7 +31,8 @@ def current_request(state, index, *, for_record=False):
     if not for_record and (not (state.tips or state.count_tips) or p.is_bot):
         return None
     return HintRequest(tuple(p.hand_tiles), tuple(p.combination_tiles),
-                       tuple(sorted(legal_cuts(state, index))), state.rule_version)
+                       tuple(sorted(legal_cuts(state, index))), state.rule_version,
+                       tuple(getattr(state, "jokers", (46,))))
 
 
 @lru_cache(maxsize=256)
@@ -39,13 +41,13 @@ def compute(request):
     hand, melds = request.hand, request.melds
     waits, by_cut = (), ()
     if len(hand) + 3 * len(melds) == 13:
-        waits = _waits(tuple(sorted(hand)), melds)
+        waits = _waits(tuple(sorted(hand)), melds, request.jokers)
     elif len(hand) + 3 * len(melds) == 14:
         rows = []
         for tile in request.cuts:
             remaining = list(hand)
             remaining.remove(tile)
-            rows.append((tile, _waits(tuple(sorted(remaining)), melds)))
+            rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers)))
         by_cut = tuple(rows)
     return waits, by_cut
 
@@ -82,7 +84,7 @@ def _snapshot_request(state, payload):
     hand = tuple(info["self_hand_tiles"])
     melds = tuple(info["players_info"][index]["combination_tiles"])
     cuts = ((hand[-1],) if info["self_has_draw_slot"] else ()) if public["forced_draw_discard"][index] else tuple(sorted(set(hand)))
-    return HintRequest(hand, melds, cuts, public["rule_version"])
+    return HintRequest(hand, melds, cuts, public["rule_version"], tuple(public.get("joker_tiles") or (46,)))
 
 
 async def prepare(state, *, payloads=(), indices=()):

@@ -5,14 +5,15 @@ from ..public import game_record_manager as record
 
 class Recording:
     def start_game_recording(self):
+        jokers = sorted(self.jokers)
         record.init_game_record(self)
         self.game_record["game_title"].update(sub_rule=self.sub_rule, rule_version=self.rule_version,
-                                             detailed_config=dict(self.detailed_config), joker_tiles=[46])
+                                             detailed_config=dict(self.detailed_config), joker_tiles=jokers)
         self.spectator_manager.record_game_title()
         # The shared delayed spectator header does not call this override.
         if self.spectator_manager.enabled:
             self.spectator_manager.game_title.update(sub_rule=self.sub_rule, rule_version=self.rule_version,
-                                                     detailed_config=dict(self.detailed_config), joker_tiles=[46])
+                                                     detailed_config=dict(self.detailed_config), joker_tiles=jokers)
 
     def build_record_round_fields(self):
         return dict(hangzhou=dict(self.hangzhou_info(), start_scores=list(self.round_start_scores)))

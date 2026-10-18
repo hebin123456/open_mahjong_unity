@@ -6,7 +6,7 @@ from collections import Counter
 from ..game_zhongyong.ZhongyongGameState import ZhongyongGameState
 from ..public.random_seed_manager import derive_round_seed
 from ...game_calculation.hangzhou.rules import (
-    RULE_VERSION, SUB_RULE, TILES, WinContext, evaluate_win, normalize_config, score_ten_winds,
+    JOKER, RULE_VERSION, SUB_RULE, TILES, WinContext, evaluate_win, normalize_config, score_ten_winds,
 )
 from .actions import ActionPolicy, legal_cuts
 from .flow import HandFlow
@@ -20,17 +20,24 @@ from .state_machine import Phase as P, StateMachine
 
 
 class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfHand, ZhongyongGameState):
+    # 子类（如萧山）可覆盖以下类属性以复用整套动作/流程/协议/结算栈：
+    # 规则标识、子规则、规则版本、连庄封顶（2**N）。
+    ROOM_RULE = "hangzhou"
+    SUB_RULE_ID = SUB_RULE
+    RULE_VERSION_ID = RULE_VERSION
+    DEALER_STREAK_CAP = 3
+
     def __init__(self, game_server=None, room_data=None, calculation_service=None,
                  db_manager=None, gamestate_id="hangzhou-test"):
         data = dict(room_data or self._default_room_data())
-        if data.get("sub_rule", SUB_RULE) != SUB_RULE:
-            raise ValueError("未开放的杭州麻将子规则")
-        config = normalize_config(data.get("detailed_config"))
+        if data.get("sub_rule", self.SUB_RULE_ID) != self.SUB_RULE_ID:
+            raise ValueError("未开放的麻将子规则")
+        config = self._normalize_config(data.get("detailed_config"))
         if any(data.get(key, False) for key in ("use_flowers", "open_cuohe", "claim_protection", "tian_di_ren_he")):
-            raise ValueError("杭州 MIL 标准规不支持此选项")
+            raise ValueError("该规则不支持此选项")
         if len(data["player_list"]) != 4:
-            raise ValueError("杭州麻将必须四人开局")
-        data.update(room_rule="hangzhou", sub_rule=SUB_RULE)
+            raise ValueError("麻将必须四人开局")
+        data.update(room_rule=self.ROOM_RULE, sub_rule=self.SUB_RULE_ID)
         self.machine = StateMachine()
         super().__init__(game_server, data, calculation_service, db_manager, gamestate_id)
         self.player_list = [HangzhouPlayer(**vars(p)) for p in self.player_list]
@@ -48,7 +55,11 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
             room_data["tactical_call"] = False
         self.action_policy = ActionPolicy()
         self.dead_wall_count = 20
-        self.rule_version = RULE_VERSION
+        self.rule_version = self.RULE_VERSION_ID
+        # 财神集合：杭州恒为固定白板；萧山子类会在每副开局后翻出动态财神。
+        # 关掉「打出财神后本轮他家不得吃碰」的弃财锁（杭州开启，萧山不设限）。
+        self.jokers = self._initial_jokers()
+        self.cai_lock_on_discard = True
         self.detailed_config = config
         self.bot_speed = data.get("bot_speed", "normal")
         self.match_finishing = False
@@ -78,6 +89,16 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         return dict(room_id="hangzhou-test", room_rule="hangzhou", sub_rule=SUB_RULE,
                     player_list=[101, 102, 103, 104], player_settings={}, game_round=1,
                     round_timer=0, step_timer=0, room_type="custom", tips=False, random_seed=1)
+
+    @staticmethod
+    def _normalize_config(raw):
+        """配置归一化入口；子类可覆盖以接受自己的规则版本与馆规选项。"""
+        return normalize_config(raw)
+
+    @classmethod
+    def _initial_jokers(cls):
+        """开封时的财神集合；萧山子类在每副抓牌后追加翻出的财神。"""
+        return (JOKER,)
 
     def _derive_round_seed(self):
         return derive_round_seed(self.master_seed, self.round_index)
@@ -119,17 +140,22 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         dealer.draw_kind = "normal"
         self.dealer_index = self.current_player_index = 0
 
+    def score_ten_winds_for(self, hand, discard_history, melds, had_meld_action=False):
+        """十风计分的统一入口：杭州用固定白板，萧山子类覆盖为动态财神。"""
+        return score_ten_winds(hand, discard_history, melds,
+                               had_meld_action=had_meld_action, jokers=self.jokers)
+
     def score_win(self, index, source, tile):
         p = self.player_list[index]
         if source == "ten_winds":
-            return score_ten_winds(p.hand_tiles, p.discard_origin_tiles, p.combination_tiles,
-                                   had_meld_action=p.had_meld_action)
+            return self.score_ten_winds_for(p.hand_tiles, p.discard_origin_tiles, p.combination_tiles,
+                                            p.had_meld_action)
         if source != "self_draw":
             return None
         return evaluate_win(p.hand_tiles, p.combination_tiles, tile,
             WinContext(self_drawn=True, after_kong=p.after_kong,
                        cai_piao_count=p.cai_piao_count if p.drawn_after_cai else 0,
-                       pre_draw_tiles=tuple(p.pre_draw_tiles)))
+                       pre_draw_tiles=tuple(p.pre_draw_tiles)), jokers=self.jokers)
 
     def can_win(self, index, source, tile):
         p = self.player_list[index]
@@ -147,7 +173,7 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
             raise RuntimeError("当前不能开始下一局")
         rotation = self.next_dealer
         self.player_list = self.player_list[rotation:] + self.player_list[:rotation]
-        self.dealer_streak = 1 if rotation else min(3, self.dealer_streak + 1)
+        self.dealer_streak = 1 if rotation else min(self.DEALER_STREAK_CAP, self.dealer_streak + 1)
         for index, p in enumerate(self.player_list):
             p.player_index = index
         self.current_round += 1

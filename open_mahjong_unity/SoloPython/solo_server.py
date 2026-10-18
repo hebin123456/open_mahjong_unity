@@ -263,11 +263,17 @@ class SoloServer:
 # ----------------------------------------------------------------------------
 # 单机对局启动
 # ----------------------------------------------------------------------------
-def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 300) -> dict:
+def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 300,
+                     rule: str = HANGZHOU_RULE) -> dict:
+    # 引擎按 room_rule/sub_rule 选择；萧山复用杭州栈，子规则用 xiaoshan/xiaoshan。
+    if rule == XIAOSHAN_RULE:
+        room_rule, sub_rule = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
+    else:
+        room_rule, sub_rule = HANGZHOU_RULE, HANGZHOU_SUB_RULE
     return dict(
-        room_id="solo-hangzhou",
-        room_rule="hangzhou",
-        sub_rule="hangzhou/mil2025",
+        room_id="solo-" + room_rule,
+        room_rule=room_rule,
+        sub_rule=sub_rule,
         player_list=[HUMAN_USER_ID] + BOT_USER_IDS,   # 1 真人 + 3 机器人
         player_settings={HUMAN_USER_ID: {"username": HUMAN_USERNAME}},
         game_round=rounds,
@@ -405,10 +411,16 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
         # 每次开局都先结束上一局，保证客户端总能收到一份新的 game_start
         # （否则大厅里再次点「开始游戏」会复用尚未结束的旧对局，界面毫无反应）。
         await _stop_solo_game(server)
-        from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
+        rule = server._label_rule
+        if rule == XIAOSHAN_RULE:
+            from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
+            engine, label = XiaoshanGameState, "萧山"
+        else:
+            from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
+            engine, label = HangzhouGameState, "杭州"
 
-        room_data = _build_room_data(**opts)
-        state = HangzhouGameState(server, room_data, None, None, "solo-1")
+        room_data = _build_room_data(rule=rule, **opts)
+        state = engine(server, room_data, None, None, "solo-1")
         try:
             from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing
             room_data.setdefault("bot_speed", DEFAULT_BOT_SPEED)
@@ -419,8 +431,8 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
         server._game = state
         server.gamestate_manager._game = state
         state.game_task = asyncio.create_task(_run_game_loop(server, state))
-        logger.info("单机杭州对局已启动 gamestate_id=%s 玩家=%s",
-                    state.gamestate_id, room_data["player_list"])
+        logger.info("单机%s对局已启动 gamestate_id=%s 玩家=%s",
+                    label, state.gamestate_id, room_data["player_list"])
         _note("已开局 gamestate_id=" + str(state.gamestate_id))
         return state
 

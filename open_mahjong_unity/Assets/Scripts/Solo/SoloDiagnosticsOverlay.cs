@@ -20,7 +20,8 @@ public class SoloDiagnosticsOverlay : MonoBehaviour {
     private string serverTrace = "";
     private string window = "";
     private float timer;
-    private bool visible = true;
+    // 默认收起：只在左上角保留一个「诊断面板」按钮，点开才展开详细日志。
+    private bool visible = false;
     private GUIStyle body;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]

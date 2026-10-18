@@ -1,6 +1,5 @@
 """Authoritative tile ownership and the lifetime of each discarded-cai lock."""
 
-from ...game_calculation.hangzhou.rules import JOKER, score_ten_winds
 from .actions import CHOWS, claim_actions, claim_tiles, empty_actions, kong_tiles, legal_cuts, turn_actions
 from .state_machine import Phase as P
 
@@ -112,9 +111,10 @@ class HandFlow:
         p.draw_kind = ""
         p.pre_draw_tiles = []
         p.drawn_after_cai = False
-        if tile == JOKER:
+        if tile in self.jokers:
             p.cai_piao_count += 1
-            self.cai_discard_locks.add(index)
+            if self.cai_lock_on_discard:
+                self.cai_discard_locks.add(index)
         else:
             p.cai_piao_count = 0
         p.discard_tiles.append(tile)
@@ -123,8 +123,8 @@ class HandFlow:
         self.last_discard_offsets[index] = len(self.discard_log) - 1
         self._event("cut", index, tile=tile, cutIndex=data.get("cutIndex", position), cutClass=drawn,
                     is_timeout_action=bool(data.get("is_timeout_action")))
-        if score_ten_winds(p.hand_tiles, p.discard_origin_tiles, p.combination_tiles,
-                           had_meld_action=p.had_meld_action) is not None:
+        if self.score_ten_winds_for(p.hand_tiles, p.discard_origin_tiles, p.combination_tiles,
+                                    p.had_meld_action) is not None:
             return self._window(P.TEN_WINDS, index, tile, {**empty_actions(), index: ["hu_self", "pass"]})
         return self._after_discard(index, tile)
 

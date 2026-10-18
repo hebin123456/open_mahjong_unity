@@ -27,13 +27,14 @@ def legal_cuts(state, index):
 
 def kong_tiles(state, index, kind):
     p = state.player_list[index]
+    jokers = tuple(getattr(state, "jokers", (JOKER,)))
     # A kong consumes a lower tile and burns its upper partner. Do not cross
     # the reserved twenty-tile wall. Chi/peng may immediately precede a kong.
     if len(state.tiles_list) < 22:
         return set()
     if kind == "angang":
-        return {t for t, n in Counter(p.hand_tiles).items() if n == 4 and t != JOKER}
-    return {t for t in p.hand_tiles if t != JOKER and f"k{t}" in p.combination_tiles}
+        return {t for t, n in Counter(p.hand_tiles).items() if n == 4 and t not in jokers}
+    return {t for t in p.hand_tiles if t not in jokers and f"k{t}" in p.combination_tiles}
 
 
 def turn_actions(state, index, discard_only=False):
@@ -49,7 +50,8 @@ def turn_actions(state, index, discard_only=False):
 
 def claim_actions(state, actor, tile):
     actions = empty_actions()
-    if tile == JOKER or len(state.tiles_list) <= 20:
+    jokers = tuple(getattr(state, "jokers", (JOKER,)))
+    if tile in jokers or len(state.tiles_list) <= 20:
         return actions
     for index, p in enumerate(state.player_list):
         if index == actor or state.is_cai_locked(index):
@@ -75,5 +77,5 @@ class ActionPolicy:
     def refresh_waiting_tiles(self, state, index, *, exclude_last_tile=False):
         p = state.player_list[index]
         hand = p.hand_tiles[:-1] if exclude_last_tile and p.has_draw_slot else p.hand_tiles
-        p.waiting_tiles = waiting_tiles(hand, p.combination_tiles)
+        p.waiting_tiles = waiting_tiles(hand, p.combination_tiles, getattr(state, "jokers", (JOKER,)))
         return p.waiting_tiles

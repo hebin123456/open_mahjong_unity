@@ -32,8 +32,13 @@ def normalize_config(raw=None):
     return {"rule_version": RULE_VERSION}
 
 
-def meld_tiles(code):
-    """Decode existing server s/k/g/G meld notation without joker exposure."""
+def meld_tiles(code, jokers=(JOKER,)):
+    """Decode existing server s/k/g/G meld notation without joker exposure.
+
+    ``jokers`` is the physical set of wildcard kinds that may never be a meld
+    face. Hangzhou passes its fixed white dragon; Xiaoshan passes the flipped
+    joker plus white.
+    """
     if not isinstance(code, str) or len(code) != 3 or code[0] not in "skgG":
         raise ValueError("非法面子")
     try:
@@ -44,12 +49,12 @@ def meld_tiles(code):
         if tile not in NUMBERS or not 2 <= tile % 10 <= 8:
             raise ValueError("非法顺子")
         return (tile - 1, tile, tile + 1)
-    if tile not in TILES or tile == JOKER:
+    if tile not in TILES or tile in tuple(jokers):
         raise ValueError("财神不可吃、碰、杠")
     return (tile,) * (3 if code[0] == "k" else 4)
 
 
-def _valid(hand, melds, complete):
+def _valid(hand, melds, complete, jokers=(JOKER,)):
     if not isinstance(hand, (list, tuple)) or not isinstance(melds, (list, tuple)):
         return None
     if len(melds) > 4 or len(hand) + 3 * len(melds) != (14 if complete else 13):
@@ -57,7 +62,7 @@ def _valid(hand, melds, complete):
     if any(type(t) is not int or t not in TILES for t in hand):
         return None
     try:
-        groups = tuple(meld_tiles(code) for code in melds)
+        groups = tuple(meld_tiles(code, jokers) for code in melds)
     except ValueError:
         return None
     all_tiles = tuple(hand) + tuple(t for group in groups for t in group)
@@ -139,38 +144,40 @@ def _policy(shapes=("standard", "seven_pairs"), jokers=(JOKER,)):
     return JokerPolicy(joker_tiles=jokers, meld_count=4, closed_cap=None, shapes=shapes)
 
 
-def waiting_tiles(hand, melds=()):
+def waiting_tiles(hand, melds=(), jokers=(JOKER,)):
     """Physically obtainable draws that complete either allowed shape."""
-    if _valid(hand, melds, False) is None:
+    if _valid(hand, melds, False, jokers) is None:
         return set()
     from ..jokers import structural_waits
-    return set(structural_waits(hand, melds, _policy()))
+    return set(structural_waits(hand, melds, _policy(jokers=tuple(jokers))))
 
 
-def can_baotou(pre_draw_tiles, melds=()):
-    """Book VIII-9: remove ONE white from the actual hand before the draw."""
-    if _valid(pre_draw_tiles, melds, False) is None or JOKER not in pre_draw_tiles:
+def can_baotou(pre_draw_tiles, melds=(), jokers=(JOKER,)):
+    """Book VIII-9: remove ONE wildcard from the actual hand before the draw."""
+    if _valid(pre_draw_tiles, melds, False, jokers) is None or not any(t in tuple(jokers) for t in pre_draw_tiles):
         return False
     from ..jokers import can_form_melds, can_form_pairs
     remainder = list(pre_draw_tiles)
-    remainder.remove(JOKER)
-    if can_form_melds(remainder, melds, _policy()):
+    remainder.remove(next(t for t in remainder if t in tuple(jokers)))
+    if can_form_melds(remainder, melds, _policy(jokers=tuple(jokers))):
         return True
-    return not melds and can_form_pairs(remainder, 6, _policy())
+    return not melds and can_form_pairs(remainder, 6, _policy(jokers=tuple(jokers)))
 
 
-def _luxury_pairs(hand):
+def _luxury_pairs(hand, jokers=(JOKER,)):
+    joker_set = set(jokers)
     counts = Counter(hand)
-    if any(tile != JOKER and count == 4 for tile, count in counts.items()):
+    if any(tile not in joker_set and count == 4 for tile, count in counts.items()):
         return True, False
-    # Four physical whites count only when they remain two literal white pairs;
-    # using them to repair unrelated singleton pairs does not create a quartet.
-    white_natural = counts[JOKER] == 4 and all(
-        count % 2 == 0 for tile, count in counts.items() if tile != JOKER)
-    return white_natural, white_natural
+    # Four physical wildcards count only when they remain two literal wildcard
+    # pairs; using them to repair unrelated singleton pairs does not create a
+    # quartet.
+    wild_natural = (sum(counts[t] for t in joker_set) == 4
+                    and all(count % 2 == 0 for tile, count in counts.items() if tile not in joker_set))
+    return wild_natural, wild_natural
 
 
-def evaluate_win(hand, melds=(), win_tile=None, context=None):
+def evaluate_win(hand, melds=(), win_tile=None, context=None, jokers=(JOKER,)):
     """Best legal normal self-draw score with an auditable physical assignment.
 
     Hangzhou fans depend only on the two shape families and historical facts,
@@ -178,7 +185,8 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None):
     worth at least two more fan, so choosing its first valid decomposition is
     exact scoring equivalence, not an arbitrary cap on a maximum-score search.
     """
-    if _valid(hand, melds, True) is None:
+    jokers = tuple(jokers)
+    if _valid(hand, melds, True, jokers) is None:
         return None
     if context is None:
         context = WinContext()
@@ -195,30 +203,30 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None):
     pre_draw = list(hand)
     pre_draw.remove(win_tile)
     if context.pre_draw_tiles is not None:
-        if (_valid(context.pre_draw_tiles, melds, False) is None
+        if (_valid(context.pre_draw_tiles, melds, False, jokers) is None
                 or Counter(pre_draw) != Counter(context.pre_draw_tiles)):
             return None
         pre_draw = context.pre_draw_tiles
     from ..jokers import can_form_pairs, can_win, iter_winning_shapes
-    pairs = not melds and can_form_pairs(hand, 7, _policy())
+    pairs = not melds and can_form_pairs(hand, 7, _policy(jokers=jokers))
     fans = []
     if pairs:
-        luxury, whites_natural = _luxury_pairs(hand)
+        luxury, whites_natural = _luxury_pairs(hand, jokers)
         fans.append(Fan("luxury_seven_pairs" if luxury else "seven_pairs",
                         "豪华七对" if luxury else "七对子", 4 if luxury else 2))
-        selected_policy = _policy(("seven_pairs",), () if whites_natural else (JOKER,))
+        selected_policy = _policy(("seven_pairs",), () if whites_natural else jokers)
     else:
-        selected_policy = _policy(("standard",))
+        selected_policy = _policy(("standard",), jokers)
         if not can_win(hand, melds, selected_policy):
             return None
-    if can_baotou(pre_draw, melds):
+    if can_baotou(pre_draw, melds, jokers):
         fans.append(Fan("baotou", "爆头", 1))
         if context.cai_piao_count:
             fans.append(Fan("cai_piao", "财飘" if context.cai_piao_count == 1
                             else f"财飘×{context.cai_piao_count}", context.cai_piao_count))
     if context.after_kong:
         fans.append(Fan("kong_draw", "杠开", 1))
-    if JOKER not in hand:
+    if not any(t in jokers for t in hand):
         fans.append(Fan("no_joker", "无财神", 1))
     if not fans:
         fans.append(Fan("plain", "平和", 0))
@@ -235,7 +243,7 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None):
     return WinScore(shape.kind, tuple(fans), decomposition)
 
 
-def ten_winds_eligible(hand, discard_history, melds=(), *, had_meld_action=False):
+def ten_winds_eligible(hand, discard_history, melds=(), *, had_meld_action=False, jokers=(JOKER,)):
     """Exactly the first ten discards, all seven honors, with no meld action.
 
     The book calls all seven honor kinds 风牌 (p. 1), not just the four winds.
@@ -243,7 +251,7 @@ def ten_winds_eligible(hand, discard_history, melds=(), *, had_meld_action=False
     """
     if type(had_meld_action) is not bool or had_meld_action or melds:
         return False
-    if _valid(hand, melds, False) is None:
+    if _valid(hand, melds, False, jokers) is None:
         return False
     if not isinstance(discard_history, (list, tuple)) or len(discard_history) != 10:
         return False
@@ -253,13 +261,14 @@ def ten_winds_eligible(hand, discard_history, melds=(), *, had_meld_action=False
     return max(Counter(tuple(hand) + tuple(discard_history)).values()) <= 4
 
 
-def score_ten_winds(hand, discard_history, melds=(), *, had_meld_action=False):
+def score_ten_winds(hand, discard_history, melds=(), *, had_meld_action=False, jokers=(JOKER,)):
     """Score the post-discard special win; a normal 14-tile shape is unneeded."""
+    jokers = tuple(jokers)
     if not ten_winds_eligible(hand, discard_history, melds,
-                              had_meld_action=had_meld_action):
+                              had_meld_action=had_meld_action, jokers=jokers):
         return None
-    fans = [Fan("ten_winds", "十风", 4 if JOKER in discard_history else 3)]
-    if JOKER not in hand:
+    fans = [Fan("ten_winds", "十风", 4 if any(t in jokers for t in discard_history) else 3)]
+    if not any(t in jokers for t in hand):
         fans.append(Fan("no_joker", "无财神", 1))
     return WinScore("ten_winds", tuple(fans))
 

@@ -11,14 +11,16 @@ from ...game_calculation.hangzhou.rules import JOKER, can_baotou, waiting_tiles
 from .actions import CHOWS, claim_tiles, kong_tiles, legal_cuts
 
 
-def _connections(hand):
+def _connections(hand, jokers=(JOKER,)):
     counts = Counter(hand)
-    return (counts[JOKER] * 20 + sum(min(2, n - 1) * n * 3 for n in counts.values())
+    wild = sum(counts[t] for t in jokers)
+    return (wild * 20 + sum(min(2, n - 1) * n * 3 for n in counts.values())
             + sum(n * (counts[t + 1] * 2 + counts[t + 2]) for t, n in counts.items() if t < 40 and t % 10 <= 7))
 
 
 def choose_action(state, index, actions):
     p = state.player_list[index]
+    jokers = tuple(getattr(state, "jokers", (JOKER,)))
     for action in ("hu_self", "ready"):
         if action in actions:
             return dict(action_type=action)
@@ -32,9 +34,9 @@ def choose_action(state, index, actions):
             rest = list(p.hand_tiles)
             rest.remove(tile)
             # Preserve jokers except when an actual all-waits hand can float.
-            floating = tile == JOKER and can_baotou(rest, p.combination_tiles)
-            outs = len(waiting_tiles(rest, p.combination_tiles)) if len(legal) > 1 else 0
-            candidates.append((floating, outs, _connections(rest), tile == p.hand_tiles[-1], tile))
+            floating = tile in jokers and can_baotou(rest, p.combination_tiles, jokers)
+            outs = len(waiting_tiles(rest, p.combination_tiles, jokers)) if len(legal) > 1 else 0
+            candidates.append((floating, outs, _connections(rest, jokers), tile == p.hand_tiles[-1], tile))
         tile = max(candidates)[-1]
         position = max(i for i, t in enumerate(p.hand_tiles) if t == tile)
         return dict(action_type="cut", TileId=tile, cutIndex=position,
@@ -43,15 +45,15 @@ def choose_action(state, index, actions):
         return dict(action_type="gang")
     # A claim must improve the held physical hand; no wall/opponent inspection.
     tile = state.live_pending_window.get("tile")
-    before = _connections(p.hand_tiles)
+    before = _connections(p.hand_tiles, jokers)
     for action in actions:
         if action not in ("peng",) + CHOWS:
             continue
         rest = list(p.hand_tiles)
         for held in claim_tiles(action, tile):
             rest.remove(held)
-        after = max(_connections(rest[:i] + rest[i + 1:]) for i in range(len(rest)))
-        if after + 12 >= before and p.hand_tiles.count(JOKER) < 2:
+        after = max(_connections(rest[:i] + rest[i + 1:], jokers) for i in range(len(rest)))
+        if after + 12 >= before and sum(p.hand_tiles.count(t) for t in jokers) < 2:
             return dict(action_type=action)
     return dict(action_type="pass")
 
@@ -67,7 +69,7 @@ async def play_bot(state, index, tick):
     players = [None] * 4
     players[index] = own
     locked = state.is_cai_locked(index)
-    view = SimpleNamespace(player_list=players, tiles_list=[0] * len(state.tiles_list),
+    view = SimpleNamespace(player_list=players, tiles_list=[0] * len(state.tiles_list), jokers=tuple(state.jokers),
                            is_cai_locked=lambda _: locked, live_pending_window=dict(state.live_pending_window or {}))
     action = await asyncio.to_thread(choose_action, view, index, list(state.action_dict[index]))
     if action["action_type"] != "pass":
