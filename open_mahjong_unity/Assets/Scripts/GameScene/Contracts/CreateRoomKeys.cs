@@ -49,4 +49,5 @@ public static class CreateRoomKeys {
     public const string WallDragons = "wall_dragons";
     public const string WallFlowers = "wall_flowers";
     public const string BaotouRequired = "baotou_required";
+    public const string AllowNegative = "allow_negative";
 }

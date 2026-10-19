@@ -350,6 +350,9 @@ public partial class CreatePanel : MonoBehaviour {
             case CreateRoomKeys.BaotouRequired:
                 if (XiaoshanBaotouToggle != null) XiaoshanBaotouToggle.SetIsOnWithoutNotify((bool)value);
                 break;
+            case CreateRoomKeys.AllowNegative:
+                if (XiaoshanNegativeToggle != null) XiaoshanNegativeToggle.SetIsOnWithoutNotify((bool)value);
+                break;
         }
     }
 
@@ -400,6 +403,7 @@ public partial class CreatePanel : MonoBehaviour {
         SetXiaoshanOptionsVisible(_ruleState == XiaoshanRuleBootstrap.RuleId);
         SetWallOptionsVisible(visible.ContainsKey(CreateRoomKeys.WallWan));
         SetToggleVisible(XiaoshanBaotouToggle, visible.ContainsKey(CreateRoomKeys.BaotouRequired));
+        SetToggleVisible(XiaoshanNegativeToggle, visible.ContainsKey(CreateRoomKeys.AllowNegative));
         if (YixingSevenPairsToggle) YixingSevenPairsToggle.gameObject.SetActive(visible.ContainsKey(YixingRuleBootstrap.SevenPairsKey));
         RefreshGuangdongControls();
         SetCommonCreateControlsVisible(visible);

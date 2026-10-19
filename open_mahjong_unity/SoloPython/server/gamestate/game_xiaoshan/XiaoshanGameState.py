@@ -47,6 +47,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
                 player.score = self.starting_score
             self.round_start_scores = [p.score for p in self.player_list]
         self.baotou_required = bool(self.detailed_config.get("baotou_required", False))
+        # 「积分小于 0 继续」：开启后输家可扣成负分且不触发清零终局，打满局数才收场。
+        self.allow_negative = bool(self.detailed_config.get("allow_negative", False))
         self.claim_from = [[0] * 4 for _ in range(4)]
 
     @staticmethod
@@ -170,7 +172,7 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
                                 total_cap=self.total_cap, dealer_cap=self.DEALER_STREAK_CAP,
                                 tian_hu=tian_hu, di_hu=di_hu,
                                 current_scores=[q.score for q in self.player_list],
-                                no_debt=bool(self.starting_score))
+                                no_debt=bool(self.starting_score) and not self.allow_negative)
         changes = list(payment.changes)
         entry = dict(winner=winner, source=source, tile=tile if source == "self_draw" else 0,
                      discarder=None, kong_player=None, points=payment.base_points,
@@ -187,8 +189,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         self.hu_order_counter = 1
         self.next_dealer = winner
         self._finish_round("win")
-        # 清零制：任一玩家输光（0 分）即整场结束，不再开下一局。
-        if self.starting_score and any(q.score + c <= 0 for q, c in zip(self.player_list, changes)):
+        # 清零制（未开「积分小于 0 继续」）：任一玩家输光（0 分）即整场结束，不再开下一局。
+        if self.starting_score and not self.allow_negative and any(q.score + c <= 0 for q, c in zip(self.player_list, changes)):
             self.match_finishing = True
         self._event("hu_self", winner, tile=entry["tile"], win_source=source)
         return self._window(P.END)
@@ -209,4 +211,5 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         data["total_cap"] = self.total_cap
         data["starting_score"] = self.starting_score
         data["baotou_required"] = self.baotou_required
+        data["allow_negative"] = self.allow_negative
         return data

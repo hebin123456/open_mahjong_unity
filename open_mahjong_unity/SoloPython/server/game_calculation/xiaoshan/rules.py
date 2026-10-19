@@ -30,10 +30,10 @@ DEFAULT_STARTING_SCORE = 0
 
 
 def normalize_config(raw=None):
-    """萧山房规可协商总倍率封顶、开局积分与「有财神必须爆头」开关；其余沿用杭州引擎的配置形状。"""
+    """萧山房规可协商总倍率封顶、开局积分、「有财神必须爆头」与「积分小于 0 继续」开关；其余沿用杭州引擎的配置形状。"""
     if raw is None:
         raw = {}
-    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score", "baotou_required"}:
+    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score", "baotou_required", "allow_negative"}:
         raise ValueError("萧山麻将没有其它馆规选项")
     version = raw.get("rule_version", RULE_VERSION)
     if version not in (RULE_VERSION, "mil-hangzhou-2025-om1"):
@@ -47,8 +47,12 @@ def normalize_config(raw=None):
     baotou = raw.get("baotou_required", False)
     if not isinstance(baotou, bool):
         raise ValueError("爆头开关只能是开或关")
+    allow_negative = raw.get("allow_negative", False)
+    if not isinstance(allow_negative, bool):
+        raise ValueError("积分小于 0 继续开关只能是开或关")
     return {"rule_version": RULE_VERSION, "total_cap": cap,
-            "starting_score": starting, "baotou_required": baotou}
+            "starting_score": starting, "baotou_required": baotou,
+            "allow_negative": allow_negative}
 
 
 @dataclass(frozen=True)

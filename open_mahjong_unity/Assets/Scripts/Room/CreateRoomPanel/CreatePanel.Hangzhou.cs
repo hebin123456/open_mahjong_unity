@@ -5,6 +5,7 @@ using UnityEngine.UI;
 
 public partial class CreatePanel {
     private Toggle XiaoshanBaotouToggle;
+    private Toggle XiaoshanNegativeToggle;
 
     /// <summary>运行时克隆萧山专属「有财神必须爆头」开关，避免场景内重复手工挂接。</summary>
     private void EnsureXiaoshanBaotouToggle() {
@@ -17,13 +18,28 @@ public partial class CreatePanel {
         XiaoshanBaotouToggle.onValueChanged = new Toggle.ToggleEvent();
         TMP_Text label = XiaoshanBaotouToggle.GetComponentInChildren<TMP_Text>(true);
         if (label != null) label.text = "有财神必须爆头";
+
+        XiaoshanNegativeToggle = Instantiate(TacticalCallToggle, TacticalCallToggle.transform.parent);
+        XiaoshanNegativeToggle.name = "XiaoshanNegative";
+        XiaoshanNegativeToggle.SetIsOnWithoutNotify(false);
+        XiaoshanNegativeToggle.group = null;
+        XiaoshanNegativeToggle.onValueChanged = new Toggle.ToggleEvent();
+        label = XiaoshanNegativeToggle.GetComponentInChildren<TMP_Text>(true);
+        if (label != null) label.text = "积分小于 0 继续";
     }
 
-    /// <summary>萧山「有财神必须爆头」开关随建房请求下发；关闭时不携带，服务端按默认关闭处理。</summary>
+    /// <summary>
+    /// 萧山馆规开关随建房请求下发。「积分小于 0 继续」：输家可扣成负分且不触发
+    /// 清零终局；两者都关闭时不携带，服务端按默认关闭处理。
+    /// </summary>
     private Dictionary<string, object> BuildHangzhouDetailedConfig() {
-        return _ruleState == XiaoshanRuleBootstrap.RuleId && XiaoshanBaotouToggle != null && XiaoshanBaotouToggle.isOn
-            ? new Dictionary<string, object> { { "baotou_required", true } }
-            : null;
+        if (_ruleState != XiaoshanRuleBootstrap.RuleId) return null;
+        Dictionary<string, object> config = null;
+        if (XiaoshanBaotouToggle != null && XiaoshanBaotouToggle.isOn)
+            (config ??= new Dictionary<string, object>())["baotou_required"] = true;
+        if (XiaoshanNegativeToggle != null && XiaoshanNegativeToggle.isOn)
+            (config ??= new Dictionary<string, object>())["allow_negative"] = true;
+        return config;
     }
 
     private void CreateHangzhouRoom() {
