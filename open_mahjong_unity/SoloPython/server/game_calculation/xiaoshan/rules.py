@@ -179,13 +179,40 @@ def _valid(hand, melds, joker, *, complete):
     return external
 
 
-def waiting_tiles(hand, melds=(), joker=JOKER):
-    """实际可摸/可和的实体牌：白板按本牌身份参与，财神同种至多三张。"""
+def waiting_tiles(hand, melds=(), joker=JOKER, baotou_required=False):
+    """实际可摸/可和的实体牌：白板按本牌身份参与，财神同种至多三张。
+
+    ``baotou_required``（有财神必须爆头）时逐进张过滤：进张成和后若手牌含
+    财神，必须存在财神做将的拆解才算听牌——否则会提示「摸到财神就能胡」
+    的假听（财神实际只能做百搭凑面子，不满足爆头）。
+    """
     external = _valid(hand, melds, joker, complete=False)
     if external is None:
         return set()
     from ..jokers import structural_waits
-    return set(structural_waits(hand, external, _policy(joker)))
+    candidates = structural_waits(hand, external, _policy(joker))
+    if not baotou_required:
+        return set(candidates)
+    policy = _policy(joker)
+    waits = set()
+    for tile in candidates:
+        if not any(t == joker for t in (*hand, tile)):
+            waits.add(tile)  # 进张后手牌无财神，不受爆头约束
+            continue
+        if any(_has_eye_joker(shape, joker)
+               for shape in iter_winning_shapes((*hand, tile), external, policy,
+                                                winning_tile=tile,
+                                                equivalence="logical_structure")):
+            waits.add(tile)
+    return waits
+
+
+def _has_eye_joker(shape, joker):
+    """财神做将（爆头拆解）：至少一颗翻出的财神位于对子组。
+
+    七对全部组都是对子，财神必在其中一对里，天然满足；
+    财神与白板（本牌）成对也算财神做将。"""
+    return any(g.kind == "pair" and joker in g.physical for g in shape.groups)
 
 
 def can_baotou(pre_draw_tiles, melds=(), joker=JOKER):
@@ -212,7 +239,7 @@ def _decomposition(shape, hand):
             "winning_logical_tile": shape.winning_logical_tile}
 
 
-def _shape_fans(shape, hand, melds, context, joker, pre_draw):
+def _shape_fans(shape, hand, melds, context, joker):
     """同一副合法拆解下的全部番种；倍率逐项相乘，不做加法封顶。"""
     fans = []
     logical = shape.logical_tiles
@@ -232,7 +259,8 @@ def _shape_fans(shape, hand, melds, context, joker, pre_draw):
         fans.append(XFan("qingyise", "清一色", 8))
     elif logical and all(t in HONORS for t in logical):
         fans.append(XFan("ziyise", "字一色", 16))
-    if can_baotou(pre_draw, melds, joker):
+    # 爆头＝财神做将：按本拆解判定，而非摸牌前启发式；财飘依附爆头。
+    if _has_eye_joker(shape, joker):
         fans.append(XFan("baotou", "爆头", 2))
         for index in range(context.cai_piao_count):
             label = "财飘" if context.cai_piao_count == 1 else f"财飘×{index + 1}"
@@ -250,9 +278,10 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
                  total_cap=DEFAULT_TOTAL_CAP, baotou_required=False):
     """最优合法自摸：枚举全部逻辑拆解，取倍率相乘后最大者。
 
-    ``baotou_required``（有财神必须爆头）：摸牌前手上有财神时，必须满足
-    爆头条件（去掉财神后仍可成搭/六对，即财神只能做将）才允许和牌，
-    财神不得单纯充当百搭凑牌型。
+    ``baotou_required``（有财神必须爆头）：成和手牌含财神时，只接受财神
+    做将的拆解——财神不得充当百搭凑面子（无论财神是摸牌前已有还是胡牌
+    张本身）。唯一例外是「杠爆」：杠上开花摸进的牌恰为财神时，财神不必
+    做将，任意合法拆解可和。
     """
     external = _valid(hand, melds, joker, complete=True)
     if external is None:
@@ -277,16 +306,18 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
                 or Counter(pre_draw) != Counter(context.pre_draw_tiles)):
             return None
         pre_draw = list(context.pre_draw_tiles)
-    # 「有财神必须爆头」：摸牌前手上有财神时，必须满足爆头条件才能和牌。
-    if (baotou_required and any(t == joker for t in pre_draw)
-            and not can_baotou(pre_draw, melds, joker)):
-        return None
+    # 「有财神必须爆头」：过滤掉财神不做将的拆解；杠爆（杠上开花摸进财神）豁免。
+    baotou_only = (baotou_required
+                   and not (context.after_kong and win_tile == joker)
+                   and any(t == joker for t in hand))
     policy = _policy(joker)
     best = None
     for shape in iter_winning_shapes(hand, external, policy, winning_tile=win_tile,
                                      equivalence="logical_structure"):
+        if baotou_only and not _has_eye_joker(shape, joker):
+            continue
         score = XWinScore(shape.kind,
-                          _shape_fans(shape, hand, melds, context, joker, pre_draw),
+                          _shape_fans(shape, hand, melds, context, joker),
                           total_cap, _decomposition(shape, hand))
         if best is None or score.total_multiplier > best.total_multiplier:
             best = score

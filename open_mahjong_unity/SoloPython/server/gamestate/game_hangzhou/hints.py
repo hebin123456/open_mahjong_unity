@@ -27,11 +27,10 @@ def _waits(hand, melds, jokers=(), physicals=(), xiaoshan=False, baotou_required
     if xiaoshan:
         frames = xs.meld_frames(melds, physicals)
         joker = jokers[0] if jokers else 46
-        # 「有财神必须爆头」：手上有财神但去掉后不能成搭时，当前根本无法和牌。
-        if (baotou_required and joker in hand
-                and not xs.can_baotou(hand, frames, joker)):
-            return ()
-        return tuple(sorted(xs.waiting_tiles(hand, frames, joker)))
+        # 「有财神必须爆头」：逐进张校验成和后财神能做将，过滤「摸到财神
+        # 就能胡」的假听（财神凑面子不满足爆头）。
+        return tuple(sorted(xs.waiting_tiles(hand, frames, joker,
+                                             baotou_required=baotou_required)))
     return tuple(sorted(waiting_tiles(hand, melds, jokers or (46,))))
 
 
