@@ -229,20 +229,45 @@ public class ActionButton : MonoBehaviour {
         LayoutRebuilder.ForceRebuildLayoutImmediate(ActionBlockContenter as RectTransform);
     }
 
+    /// <summary>萧山翻财：白板（46）固定顶替翻出的财神本牌，返回本牌 id；非萧山或翻出白板时返回 0。</summary>
+    private static int XiaoshanJokerIdentity() {
+        var state = HangzhouGameState.Active;
+        if (state == null || string.IsNullOrEmpty(state.Info?.rule_version)
+                || !state.Info.rule_version.StartsWith("xiaoshan")) return 0;
+        int indicator = state.Info.joker_indicator;
+        return indicator > 0 && indicator != HangzhouGameState.Joker ? indicator : 0;
+    }
+
+    /// <summary>按萧山身份计数手牌：白板计入其顶替的本牌；jokerIdentity=0 时等价于普通归一化计数。</summary>
+    private static int CountTilesByIdentity(List<int> handTiles, int identity, int jokerIdentity) {
+        int count = 0;
+        foreach (int t in handTiles) {
+            int id = RiichiTileUtil.Normalize(t);
+            if (jokerIdentity > 0 && id == HangzhouGameState.Joker) id = jokerIdentity;
+            if (id == identity) count++;
+        }
+        return count;
+    }
+
     private static List<(int targetTile, List<int> displayTiles)> CollectAngangOptions(List<int> handTiles) {
         var options = new List<(int, List<int>)>();
         var processedNorms = new HashSet<int>();
         // 不可和的花色（四川定缺）不能暗杠
         int excludedSuit = RuleRegistry.ActiveGameState?.ExcludedSuit ?? 0;
+        // 萧山：白板顶替本牌，候选与展示按本牌身份（服务端杠候选同为逻辑身份）。
+        int jokerIdentity = XiaoshanJokerIdentity();
         foreach (int tileID in handTiles) {
             int norm = RiichiTileUtil.Normalize(tileID);
+            if (jokerIdentity > 0 && tileID == HangzhouGameState.Joker) norm = jokerIdentity;
             if (processedNorms.Contains(norm)) continue;
             processedNorms.Add(norm);
             if (excludedSuit >= 1 && excludedSuit <= 3 && norm / 10 == excludedSuit) continue;
-            if (GameRecordMeldCodec.CountNormalizedTiles(handTiles, norm) != 4) continue;
+            if (CountTilesByIdentity(handTiles, norm, jokerIdentity) != 4) continue;
             if (!TurnClock.Current.IsKongCandidate("angang", norm)) continue;
-            var actualTiles = handTiles.Where(t => RiichiTileUtil.Normalize(t) == norm).ToList();
-            options.Add((norm, actualTiles));
+            var display = jokerIdentity > 0
+                ? new List<int> { norm, norm, norm, norm }
+                : handTiles.Where(t => RiichiTileUtil.Normalize(t) == norm).ToList();
+            options.Add((norm, display));
         }
         return options;
     }
@@ -252,13 +277,20 @@ public class ActionButton : MonoBehaviour {
         if (WenzhouGameState.Active != null) return WenzhouGameState.CollectJiagangOptions(handTiles, combinations);
         var options = new List<(int, List<int>)>();
         var processedNorms = new HashSet<int>();
+        int jokerIdentity = XiaoshanJokerIdentity();
         foreach (int tileID in handTiles) {
             int norm = RiichiTileUtil.Normalize(tileID);
+            if (jokerIdentity > 0 && tileID == HangzhouGameState.Joker) norm = jokerIdentity;
             if (processedNorms.Contains(norm)) continue;
             if (!combinations.Contains($"k{norm}")) continue;
             if (!TurnClock.Current.IsKongCandidate("jiagang", norm)) continue;
             processedNorms.Add(norm);
-            options.Add((tileID, new List<int> { tileID, tileID, tileID, tileID }));
+            // 萧山提交逻辑身份（白板-only 手牌也能加杠本牌）；其余规则维持原实体牌。
+            int target = jokerIdentity > 0 ? norm : tileID;
+            var display = jokerIdentity > 0
+                ? new List<int> { norm, norm, norm, norm }
+                : new List<int> { tileID, tileID, tileID, tileID };
+            options.Add((target, display));
         }
         return options;
     }

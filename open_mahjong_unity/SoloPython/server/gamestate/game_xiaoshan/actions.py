@@ -43,12 +43,18 @@ def turn_actions(state, index, discard_only=False):
 
 
 def kong_tiles(state, index, kind):
+    """杠候选按逻辑身份（本牌）下发：白板与真实本牌合并为同一身份。
+
+    客户端选项、目标提交与验证全部使用逻辑身份；白板 4 张与「白板+本牌」
+    混合都归一为本牌暗杠，避免客户端按物理牌计数漏出候选导致卡死。
+    """
     p = state.player_list[index]
     joker = state.joker_indicator
     if kind == "angang":
         counts = Counter(natural(t, joker) for t in p.hand_tiles if t != joker)
-        return {t for t in p.hand_tiles if t != joker and counts[natural(t, joker)] == 4}
-    return {t for t in p.hand_tiles if t != joker and f"k{natural(t, joker)}" in p.combination_tiles}
+        return {identity for identity, n in counts.items() if n == 4}
+    return {natural(t, joker) for t in p.hand_tiles
+            if t != joker and f"k{natural(t, joker)}" in p.combination_tiles}
 
 
 def claim_actions(state, actor, tile):

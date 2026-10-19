@@ -29,7 +29,8 @@ class XiaoshanHandFlow(HandFlow):
             self._cut_identity(index, data)
         elif action in ("angang", "jiagang"):
             tile = data.get("target_tile")
-            if type(tile) is not int or tile not in kong_tiles(self, index, action):
+            # 候选按逻辑身份下发；旧客户端可能提交实体牌（白板 46），先映射再校验。
+            if type(tile) is not int or xs.natural(tile, self.joker_indicator) not in kong_tiles(self, index, action):
                 raise ValueError("不能对指定牌开杠")
 
     def _after_discard(self, index, tile):
@@ -79,24 +80,29 @@ class XiaoshanHandFlow(HandFlow):
     def _self_kong(self, index, action, tile):
         p = self.player_list[index]
         joker = self.joker_indicator
-        drawn = p.has_draw_slot and p.hand_tiles[-1] == tile
+        # 目标为逻辑身份（本牌）；natural 幂等，兼容旧客户端提交的实体牌。
+        logical = xs.natural(tile, joker)
         if action == "angang":
-            logical = xs.natural(tile, joker)
             held = physical_for(p.hand_tiles, [logical] * 4, joker)
             if held is None:
                 raise ValueError("暗杠手牌不足")
+            drawn = p.has_draw_slot and p.hand_tiles[-1] in held
             for t in held:
                 p.hand_tiles.remove(t)
             code, mask = f"G{logical}", [value for t in held for value in (2, t)]
             p.combination_tiles.append(code)
             p.combination_mask.append(mask)
         else:
-            p.hand_tiles.remove(tile)
-            logical = xs.natural(tile, joker)
             position = p.combination_tiles.index(f"k{logical}")
+            physical = next((t for t in sorted(p.hand_tiles)
+                             if t != joker and xs.natural(t, joker) == logical), None)
+            if physical is None:
+                raise ValueError("加杠手牌不足")
+            drawn = p.has_draw_slot and p.hand_tiles[-1] == physical
+            p.hand_tiles.remove(physical)
             code, mask = f"g{logical}", list(p.combination_mask[position])
             called = next(i for i in range(0, len(mask), 2) if mask[i] == 1)
-            mask[called:called] = [3, tile]
+            mask[called:called] = [3, physical]
             p.combination_tiles[position], p.combination_mask[position] = code, mask
         p.hand_tiles.sort()
         p.has_draw_slot = False

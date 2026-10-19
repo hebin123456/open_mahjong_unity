@@ -17,12 +17,25 @@ def _normalize_tile(tile: int) -> int:
 def _count_normalized(hand_tiles: list, normal_tile: int) -> int:
     return sum(1 for t in hand_tiles if _normalize_tile(t) == normal_tile)
 
+def _state_natural_map(game_state) -> dict:
+    """萧山翻财的白板固定映射（白板 46 → 翻出的财神本牌）；其它规则为空。"""
+    return dict(getattr(game_state, "joker_natural_map", ()) or ())
+
+def _count_kongable(hand_tiles: list, normal_tile: int, natural_map: dict) -> int:
+    """按牌种计数；带白板映射时把顶替实体并入本牌（混合白板+本牌杠）。"""
+    total = _count_normalized(hand_tiles, normal_tile)
+    if natural_map:
+        total += sum(1 for t in hand_tiles
+                     if natural_map.get(_normalize_tile(t)) == normal_tile
+                     and _normalize_tile(t) != normal_tile)
+    return total
+
 def _is_kuikae_forbidden_cut(player, tile_id: int) -> bool:
     return _normalize_tile(tile_id) in {
         _normalize_tile(t) for t in (getattr(player, "kuikae_forbidden_tiles", None) or [])
     }
 
-def _infer_jiagang_target(player):
+def _infer_jiagang_target(player, natural_map=None):
     """从玩家已有碰牌与手牌推断可加杠目标，兼容赤 5 与客户端 targetTile 缺失。"""
     for combo in getattr(player, "combination_tiles", []) or []:
         if not combo or combo[0] != "k":
@@ -31,15 +44,16 @@ def _infer_jiagang_target(player):
             normal_tile = int(combo[1:])
         except ValueError:
             continue
-        if _count_normalized(player.hand_tiles, normal_tile) > 0:
+        if _count_kongable(player.hand_tiles, normal_tile, natural_map or {}) > 0:
             return normal_tile
     return None
 
-def _resolve_jiagang_target(player, target_tile):
+def _resolve_jiagang_target(player, target_tile, natural_map=None):
     normal_target = _normalize_tile(target_tile) if target_tile is not None else None
-    if normal_target is not None and f"k{normal_target}" in player.combination_tiles and _count_normalized(player.hand_tiles, normal_target) > 0:
+    if normal_target is not None and f"k{normal_target}" in player.combination_tiles \
+            and _count_kongable(player.hand_tiles, normal_target, natural_map or {}) > 0:
         return normal_target
-    return _infer_jiagang_target(player)
+    return _infer_jiagang_target(player, natural_map)
 
 def _infer_angang_target(player):
     processed = set()
@@ -52,14 +66,14 @@ def _infer_angang_target(player):
             return normal_tile
     return None
 
-def _resolve_buzhang_target(player, target_tile):
+def _resolve_buzhang_target(player, target_tile, natural_map=None):
     normal_target = _normalize_tile(target_tile) if target_tile is not None else None
     if normal_target is not None:
-        if f"k{normal_target}" in player.combination_tiles and _count_normalized(player.hand_tiles, normal_target) > 0:
+        if f"k{normal_target}" in player.combination_tiles and _count_kongable(player.hand_tiles, normal_target, natural_map or {}) > 0:
             return normal_target
-        if _count_normalized(player.hand_tiles, normal_target) >= 4:
+        if _count_kongable(player.hand_tiles, normal_target, natural_map or {}) >= 4:
             return normal_target
-    return _infer_jiagang_target(player) or _infer_angang_target(player)
+    return _infer_jiagang_target(player, natural_map) or _infer_angang_target(player)
 
 # 获取机器人AI行动（直接使用玩家索引，只检测逻辑合法性）
 async def get_ai_action(game_state, player_index: int, action_type: str, cutClass: bool, TileId: int, cutIndex: int, target_tile: int, chi_combo_index: int = 0):
@@ -112,6 +126,7 @@ async def get_ai_action(game_state, player_index: int, action_type: str, cutClas
             )
             return
 
+        natural_map = _state_natural_map(game_state)
         # 操作合法，将操作数据放入队列
         if action_type in ("cut", "riichi_cut"): # 切牌/立直切
             # 验证切牌的TileId是否在玩家手牌中
@@ -143,19 +158,19 @@ async def get_ai_action(game_state, player_index: int, action_type: str, cutClas
             # 验证特殊操作的条件
             if action_type == "jiagang":
                 # 加杠验证：要求组合牌中有碰牌形成的刻子
-                target_tile = _resolve_jiagang_target(current_player, target_tile)
+                target_tile = _resolve_jiagang_target(current_player, target_tile, natural_map)
                 if target_tile is None:
                     logger.warning(f"加杠失败：玩家没有可加杠的刻子, player_index={player_index}, target_tile={target_tile}, combination_tiles={current_player.combination_tiles}, hand_tiles={current_player.hand_tiles}")
                     return  # 丢弃命令
             elif action_type == "buzhang":
-                target_tile = _resolve_buzhang_target(current_player, target_tile)
+                target_tile = _resolve_buzhang_target(current_player, target_tile, natural_map)
                 if target_tile is None:
                     logger.warning(f"补张失败：玩家没有可补张的牌, player_index={player_index}, combination_tiles={current_player.combination_tiles}, hand_tiles={current_player.hand_tiles}")
                     return
             elif action_type == "angang":
-                # 暗杠验证：要求目标牌在自己手上有4张
+                # 暗杠验证：要求目标牌在自己手上有4张（萧山白板顶替本牌一并计数）
                 target_tile = _normalize_tile(target_tile)
-                tile_count = _count_normalized(current_player.hand_tiles, target_tile)
+                tile_count = _count_kongable(current_player.hand_tiles, target_tile, natural_map)
                 if tile_count < 4:
                     logger.warning(f"暗杠失败：手牌中没有足够的牌进行暗杠, player_index={player_index}, target_tile={target_tile}, count={tile_count}, hand_tiles={current_player.hand_tiles}")
                     return  # 丢弃命令
@@ -272,6 +287,7 @@ async def get_action(game_state, player_id: str, action_type: str, cutClass: boo
                 )
                 return
 
+        natural_map = _state_natural_map(game_state)
         # 操作合法，将操作数据放入队列
         if action_type in ("cut", "riichi_cut"): # 切牌/立直切
             # 验证切牌的TileId是否在玩家手牌中
@@ -330,19 +346,19 @@ async def get_action(game_state, player_id: str, action_type: str, cutClass: boo
             # 验证特殊操作的条件
             if action_type == "jiagang":
                 # 加杠验证：要求组合牌中有碰牌形成的刻子
-                target_tile = _resolve_jiagang_target(current_player, target_tile)
+                target_tile = _resolve_jiagang_target(current_player, target_tile, natural_map)
                 if target_tile is None:
                     logger.warning(f"加杠失败：玩家没有可加杠的刻子, player_index={player_index}, user_id={user_id}, target_tile={target_tile}, combination_tiles={current_player.combination_tiles}, hand_tiles={current_player.hand_tiles}")
                     return  # 丢弃命令
             elif action_type == "buzhang":
-                target_tile = _resolve_buzhang_target(current_player, target_tile)
+                target_tile = _resolve_buzhang_target(current_player, target_tile, natural_map)
                 if target_tile is None:
                     logger.warning(f"补张失败：玩家没有可补张的牌, player_index={player_index}, user_id={user_id}, combination_tiles={current_player.combination_tiles}, hand_tiles={current_player.hand_tiles}")
                     return
             elif action_type == "angang":
-                # 暗杠验证：要求目标牌在自己手上有4张
+                # 暗杠验证：要求目标牌在自己手上有4张（萧山白板顶替本牌一并计数）
                 target_tile = _normalize_tile(target_tile)
-                tile_count = _count_normalized(current_player.hand_tiles, target_tile)
+                tile_count = _count_kongable(current_player.hand_tiles, target_tile, natural_map)
                 if tile_count < 4:
                     logger.warning(f"暗杠失败：手牌中没有足够的牌进行暗杠, player_index={player_index}, user_id={user_id}, target_tile={target_tile}, count={tile_count}, hand_tiles={current_player.hand_tiles}")
                     return  # 丢弃命令
