@@ -184,7 +184,8 @@ def waiting_tiles(hand, melds=(), joker=JOKER, baotou_required=False):
 
     ``baotou_required``（有财神必须爆头）时逐进张过滤：进张成和后若手牌含
     财神，必须存在财神做将的拆解才算听牌——否则会提示「摸到财神就能胡」
-    的假听（财神实际只能做百搭凑面子，不满足爆头）。
+    的假听（财神实际只能做百搭凑面子，不满足爆头）；清一色、七对子拆解
+    豁免，与 evaluate_win 同规则。
     """
     external = _valid(hand, melds, joker, complete=False)
     if external is None:
@@ -199,7 +200,7 @@ def waiting_tiles(hand, melds=(), joker=JOKER, baotou_required=False):
         if not any(t == joker for t in (*hand, tile)):
             waits.add(tile)  # 进张后手牌无财神，不受爆头约束
             continue
-        if any(_has_eye_joker(shape, joker)
+        if any(_has_eye_joker(shape, joker) or _baotou_exempt(shape)
                for shape in iter_winning_shapes((*hand, tile), external, policy,
                                                 winning_tile=tile,
                                                 equivalence="logical_structure")):
@@ -232,6 +233,17 @@ def _numeral_suit(tile):
     return tile // 10 if tile < 40 else 0
 
 
+def _is_qingyise(shape):
+    """清一色：全部逻辑牌同数字花色（字一色不算清一色）。"""
+    suits = {_numeral_suit(t) for t in shape.logical_tiles}
+    return len(suits) == 1 and next(iter(suits)) in (1, 2, 3)
+
+
+def _baotou_exempt(shape):
+    """清一色、七对子豁免「有财神必须爆头」：财神可任作百搭凑型。"""
+    return shape.kind == "seven_pairs" or _is_qingyise(shape)
+
+
 def _decomposition(shape, hand):
     return {**asdict(shape), "physical_tiles": tuple(hand),
             "logical_tiles": shape.logical_tiles,
@@ -254,10 +266,9 @@ def _shape_fans(shape, hand, melds, context, joker):
             fans.append(XFan("quandao", "全倒", 2))
         if non_pair and all(g.kind in ("triplet", "kong") for g in non_pair):
             fans.append(XFan("pengpeng", "碰碰胡", 2))
-    suits = {_numeral_suit(t) for t in logical}
-    if len(suits) == 1 and next(iter(suits)) in (1, 2, 3):
+    if _is_qingyise(shape):
         fans.append(XFan("qingyise", "清一色", 8))
-    elif logical and all(t in HONORS for t in logical):
+    elif shape.logical_tiles and all(t in HONORS for t in shape.logical_tiles):
         fans.append(XFan("ziyise", "字一色", 16))
     # 爆头＝财神做将：按本拆解判定，而非摸牌前启发式；财飘依附爆头。
     if _has_eye_joker(shape, joker):
@@ -280,8 +291,8 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
 
     ``baotou_required``（有财神必须爆头）：成和手牌含财神时，只接受财神
     做将的拆解——财神不得充当百搭凑面子（无论财神是摸牌前已有还是胡牌
-    张本身）。唯一例外是「杠爆」：杠上开花摸进的牌恰为财神时，财神不必
-    做将，任意合法拆解可和。
+    张本身）。例外有二：杠爆（杠上开花摸进的牌恰为财神时，财神不必做
+    将，任意合法拆解可和）；清一色、七对子拆解豁免，财神可任作百搭。
     """
     external = _valid(hand, melds, joker, complete=True)
     if external is None:
@@ -306,7 +317,7 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
                 or Counter(pre_draw) != Counter(context.pre_draw_tiles)):
             return None
         pre_draw = list(context.pre_draw_tiles)
-    # 「有财神必须爆头」：过滤掉财神不做将的拆解；杠爆（杠上开花摸进财神）豁免。
+    # 「有财神必须爆头」：过滤掉财神不做将的拆解；杠爆豁免，清一色/七对豁免。
     baotou_only = (baotou_required
                    and not (context.after_kong and win_tile == joker)
                    and any(t == joker for t in hand))
@@ -314,7 +325,7 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
     best = None
     for shape in iter_winning_shapes(hand, external, policy, winning_tile=win_tile,
                                      equivalence="logical_structure"):
-        if baotou_only and not _has_eye_joker(shape, joker):
+        if baotou_only and not _has_eye_joker(shape, joker) and not _baotou_exempt(shape):
             continue
         score = XWinScore(shape.kind,
                           _shape_fans(shape, hand, melds, context, joker),
