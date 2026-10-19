@@ -109317,8 +109317,6 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-# 单机版声明：原"平台网址:salasasa.cn"注释保留，恢复时改回下一行注释的原文
-# m_text: "\u5E73\u53F0\u7F51\u5740:salasasa.cn"
   m_text: "\u5355\u673A\u7248\u9EBB\u5C06\u6E38\u620F\uFF0C\u652F\u6301\u591A\u79CD\u89C4\u5219\uFF0C\u795D\u73A9\u5F97\u5F00\u5FC3\uFF01"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae11b662bda1504e8546327cf07ae25, type: 2}
@@ -446262,8 +446260,6 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-# 已按需求注释启动声明；恢复时删除下一行空文本并取消本行注释：
-# m_text: "salasasa\u5E73\u53F0\u662Fopen_mahjong_unity\u9879\u76EE\u7684\u793A\u4F8B\u670D\u52A1\u5668\uFF0C\u6E38\u73A9\u671F\u95F4\u51FA\u73B0\u4EFB\u4F55\u95EE\u9898\u8BF7\u8054\u7CFB\u6D4B\u8BD5Q\u7FA4:906497522\u3001\u60A8\u4E5F\u53EF\u4EE5\u8054\u7CFB\u670D\u52A1\u5668\u7BA1\u7406\u5458Q1448826180\u76F4\u63A5\u53CD\u9988\u95EE\u9898\uFF0C\u7528\u6237\u6570\u636E\u5C06\u4F1A\u4E88\u4EE5\u4FDD\u7559\u3002"
   m_text: ""
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae11b662bda1504e8546327cf07ae25, type: 2}
@@ -501726,7 +501722,6 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-# 单机版：原 Web 端 GPU 提示声明注释掉（原文保留在子节点 Link 的 m_text 中），恢复显示把下一行改回 1
   m_IsActive: 0
 --- !u!224 &892666517
 RectTransform:
@@ -848485,7 +848480,6 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-# 单机版：原"交流测试群:906497522"声明注释掉（原文保留在本节点 m_text 中），恢复显示把下一行改回 1
   m_IsActive: 0
 --- !u!224 &1486218027
 RectTransform:
@@ -1205627,8 +1205621,6 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-# 已按需求改为单机版介绍；恢复时删除下一行并取消本行注释：
-# m_text: "open_mahjong_unity\u662F\u4E00\u6B3E\u57FA\u4E8Eunity/python-fastapi\u7684\u9EBB\u5C06\u5E73\u53F0\u9879\u76EE\uFF0C\u8BE5\u9879\u76EE\u9075\u5FAAMIT\u8BB8\u53EF\u534F\u8BAE\u3001\u514D\u8D39\u3001\u5F00\u6E90\u3001\u652F\u6301PC/\u5B89\u5353/ios\u4E09\u7AEF\u4E92\u901A\uFF1B\u76EE\u6807\u662F\u652F\u6301\u6240\u6709\u9EBB\u5C06\u89C4\u5219\u3001\u5E76\u4E14\u63D0\u4F9B\u7ED9\u73A9\u5BB6\u81EA\u5B9A\u4E49\u89C4\u5219\u7684\u9009\u9879\u3002\u6B22\u8FCE\u52A0\u5165q\u7FA4906497522\u53C2\u4E0E\u8BA8\u8BBA\u3001\u534F\u52A9\u548C\u6D4B\u8BD5\u3002"
   m_text: "\u5355\u673A\u7248\u9EBB\u5C06\u6E38\u620F\uFF0C\u652F\u6301\u591A\u79CD\u89C4\u5219\uFF0C\u795D\u73A9\u5F97\u5F00\u5FC3\uFF01"
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: bae11b662bda1504e8546327cf07ae25, type: 2}
