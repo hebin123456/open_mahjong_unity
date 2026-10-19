@@ -39,25 +39,39 @@ public class LocalBattleRecordPanel : MonoBehaviour {
     private static void Create() {
         if (Instance != null) return;
         var go = new GameObject("LocalBattleRecordPanel", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
-        DontDestroyOnLoad(go);
-        var canvas = go.GetComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 900;
-        var scaler = go.GetComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920, ReferenceHeight);
-        scaler.matchWidthOrHeight = 1f; // 按高度适配，竖屏/横屏都能铺满
+        try {
+            DontDestroyOnLoad(go);
+            var canvas = go.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 900;
+            var scaler = go.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, ReferenceHeight);
+            scaler.matchWidthOrHeight = 1f; // 按高度适配，竖屏/横屏都能铺满
 
-        Instance = go.AddComponent<LocalBattleRecordPanel>();
-        Instance.BuildLayout();
+            Instance = go.AddComponent<LocalBattleRecordPanel>();
+            Instance.BuildLayout();
+        } catch (System.Exception e) {
+            // 构建失败必须销毁整个浮层：否则半成品 Canvas（含全屏遮罩 Image）会
+            // 常驻屏幕并吞掉所有 uGUI 点击，表现为「点战绩/其他按钮都没反应」。
+            Debug.LogError("[LocalBattleRecord] 战绩浮层构建失败: " + e);
+            Instance = null;
+            Destroy(go);
+            return;
+        }
         go.SetActive(false);
     }
 
     public static void Show() {
         if (Instance == null) Create();
+        if (Instance == null) return;
         Instance.gameObject.SetActive(true);
         Instance.clearArmed = false;
-        Instance.Rebuild();
+        try {
+            Instance.Rebuild();
+        } catch (System.Exception e) {
+            Debug.LogError("[LocalBattleRecord] 战绩列表刷新失败: " + e);
+        }
     }
 
     private void Update() {

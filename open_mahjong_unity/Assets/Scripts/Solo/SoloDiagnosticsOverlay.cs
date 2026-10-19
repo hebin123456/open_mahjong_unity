@@ -16,6 +16,7 @@ public class SoloDiagnosticsOverlay : MonoBehaviour {
 
     private static readonly List<string> Lines = new List<string>();
     private static readonly object Lock = new object();
+    private static int recentFailures;   // Update 轮询连续失败计数，熔断后停止 JNI 轮询
 
     private string serverTrace = "";
     private string window = "";
@@ -78,17 +79,37 @@ public class SoloDiagnosticsOverlay : MonoBehaviour {
         timer -= Time.unscaledDeltaTime;
         if (timer > 0f) return;
         timer = RefreshInterval;
-        serverTrace = SoloServerBootstrap.RecentEvents();
+        // Android 上 RecentEvents 是主线程 JNI→Python 调用；连续失败说明桥接异常，
+        // 熔断停止轮询，避免每 0.5s 的卡顿累积拖累整个 UI（表现为全屏点不动）。
+        if (recentFailures >= 3) return;
+        try {
+            serverTrace = SoloServerBootstrap.RecentEvents();
+            recentFailures = 0;
+        } catch (System.Exception e) {
+            recentFailures++;
+            serverTrace = "ERR(csharp): " + e.Message;
+        }
         window = WindowsManager.Instance != null ? WindowsManager.Instance.GetCurrentWindow() : "?";
     }
 
     private void OnGUI() {
+        try {
+            DrawOverlay();
+        } catch (System.Exception e) {
+            // OnGUI 抛异常会让「诊断面板」按钮再也画不出来（用户视角就是点了没反应），
+            // 把异常本身写进日志缓冲，面板恢复后能自证问题。
+            Debug.LogError("[SoloDiagnostics] OnGUI 异常: " + e);
+        }
+    }
+
+    private void DrawOverlay() {
         if (body == null) {
             int size = Mathf.Max(20, Screen.height / 52);
             body = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = false, richText = false };
         }
         if (!visible) {
-            if (GUI.Button(new Rect(8, 8, 160, body.fontSize * 2), "诊断面板")) visible = true;
+            // 手机上默认字体下按钮太小容易点不中，适当加大点击区。
+            if (GUI.Button(new Rect(8, 8, Mathf.Max(200, body.fontSize * 9), body.fontSize * 2.6f), "诊断面板")) visible = true;
             return;
         }
 
