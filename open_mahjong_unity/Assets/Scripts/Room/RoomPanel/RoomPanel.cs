@@ -258,8 +258,8 @@ public partial class RoomPanel : MonoBehaviour {
     private static readonly string[] BotSpeedLabels = { "极快（0 秒）", "快速（0.5 秒）", "中等（1 秒）", "慢速（1.5 秒）", "很慢（2 秒）", "超慢（3 秒）" };
 
     private static int BotSpeedIndex(string speed) {
-        int index = System.Array.IndexOf(BotSpeedKeys, speed ?? "fast");
-        return index >= 0 ? index : 1;
+        int index = System.Array.IndexOf(BotSpeedKeys, speed ?? "medium");
+        return index >= 0 ? index : 2;
     }
 
     // 场景烘焙的是旧 4 档选项；运行时与服务端档位对齐（含新增的 2 秒/3 秒）。
@@ -283,7 +283,7 @@ public partial class RoomPanel : MonoBehaviour {
         // The shared room broadcast owns the value; a rejected request cannot leave a local draft.
         botSpeedDropdown.SetValueWithoutNotify(BotSpeedIndex(lastRoomInfo.bot_speed));
         if (lastRoomInfo.host_user_id != UserDataManager.Instance.UserId || lastRoomInfo.is_game_running) return;
-        string speed = index >= 0 && index < BotSpeedKeys.Length ? BotSpeedKeys[index] : "fast";
+        string speed = index >= 0 && index < BotSpeedKeys.Length ? BotSpeedKeys[index] : "medium";
         if (speed != lastRoomInfo.bot_speed) RoomNetworkManager.Instance.SetBotSpeed(lastRoomInfo.room_id, speed);
     }
 
