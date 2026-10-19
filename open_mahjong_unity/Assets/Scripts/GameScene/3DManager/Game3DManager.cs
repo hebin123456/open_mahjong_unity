@@ -193,15 +193,15 @@ public partial class Game3DManager : MonoBehaviour {
     /// <summary>
     /// 把本副翻出的财神以实体牌摆到中心盘左前侧空地（正面朝上，朝向自家玩家）。
     /// 正中心会盖住中心盘的圈数/余牌读数；四家牌河 6 张一行且行中点恒以中心盘为中心
-    /// （横向 ±3 槽），故沿「自家牌河左端 × 左家牌河近端」的夹角外让出半张余量摆放，
-    /// 牌河任意进度都不会与读数或牌河重叠。
+    /// （横向 ±3 槽），故沿「自家牌河左端 × 左家牌河近端」的夹角外让出余量摆放，
+    /// 并再往左下角多退一张牌宽，远离中心读数更醒目；牌河任意进度都不会与读数或牌河重叠。
     /// joker_indicator <= 0（如杭州恒白板，无翻财）时不摆；重复调用先回收旧牌。
     /// </summary>
     public void ShowJokerIndicatorTile(int tileId) {
         ClearJokerIndicatorTile();
         if (tileId <= 0) return;
         Quaternion rotation = RiverTileWorldRotation("self");
-        float clear = 3f * widthSpacing + 0.5f * heightSpacing;
+        float clear = 4f * widthSpacing + 1f * heightSpacing;
         Vector3 position = PlaceTileOnTable(
             TableCenterPosition() + LeftDirection * clear + BackDirection * clear, rotation);
         GameObject cardObj = MahjongObjectPool.Instance.Spawn(tileId, position, rotation);
