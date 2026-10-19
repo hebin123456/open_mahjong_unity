@@ -10,6 +10,8 @@
 - 番种倍率相乘而非相加取 2^n（见 ``game_calculation/xiaoshan/rules.py``）。
 - 承包：一位玩家从另一位玩家处累计吃、碰三次即形成承包关系（按牌手身份跨局累计）。
 - 天胡通杀、地胡按封顶结算。
+- 清零制（开局积分大于 0 时启用）：输家最多输光手上的分，不存在负分；
+  结算后任一玩家恰好 0 分即整场结束——天胡一把通杀三家清零即此场景。
 - 流局庄家留任且连庄倍数不递增。
 """
 
@@ -167,7 +169,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
                                 self._seat_claims(), base_score=xs.BASE_SCORE,
                                 total_cap=self.total_cap, dealer_cap=self.DEALER_STREAK_CAP,
                                 tian_hu=tian_hu, di_hu=di_hu,
-                                current_scores=[q.score for q in self.player_list])
+                                current_scores=[q.score for q in self.player_list],
+                                no_debt=bool(self.starting_score))
         changes = list(payment.changes)
         entry = dict(winner=winner, source=source, tile=tile if source == "self_draw" else 0,
                      discarder=None, kong_player=None, points=payment.base_points,
@@ -184,6 +187,9 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         self.hu_order_counter = 1
         self.next_dealer = winner
         self._finish_round("win")
+        # 清零制：任一玩家输光（0 分）即整场结束，不再开下一局。
+        if self.starting_score and any(q.score + c <= 0 for q, c in zip(self.player_list, changes)):
+            self.match_finishing = True
         self._event("hu_self", winner, tile=entry["tile"], win_source=source)
         return self._window(P.END)
 

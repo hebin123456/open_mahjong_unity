@@ -366,8 +366,12 @@ def _validate_seats(winner, dealer):
 def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
                base_score=BASE_SCORE, total_cap=DEFAULT_TOTAL_CAP,
                dealer_cap=DEFAULT_DEALER_CAP, tian_hu=False, di_hu=False,
-               current_scores=None):
-    """萧山结算：连庄倍数 + 承包关系；天胡通杀、地胡按封顶结算。"""
+               current_scores=None, no_debt=False):
+    """萧山结算：连庄倍数 + 承包关系；天胡通杀、地胡按封顶结算。
+
+    ``no_debt``（清零制，持有开局底分时启用）：输家最多输光手上的分，
+    付不起的部分不追讨，分值不存在负数——天胡把赢家之外全部清零即此语义。
+    """
     if not isinstance(score, XWinScore):
         raise ValueError("缺少合法和牌计分")
     _validate_seats(winner, dealer)
@@ -407,7 +411,14 @@ def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
         transfers = [Transfer(seat, winner, amount, "自摸")
                      for seat, amount in normal.items()]
     changes = [0] * 4
+    settled = []
     for transfer in transfers:
-        changes[transfer.payer] -= transfer.points
-        changes[winner] += transfer.points
-    return Settlement(tuple(changes), tuple(transfers), total, multiplier, points)
+        amount = transfer.points
+        if no_debt and current_scores is not None:
+            amount = min(amount, max(0, int(current_scores[transfer.payer])))
+        if amount != transfer.points:
+            transfer = replace(transfer, points=amount)
+        settled.append(transfer)
+        changes[transfer.payer] -= amount
+        changes[winner] += amount
+    return Settlement(tuple(changes), tuple(settled), total, multiplier, points)
