@@ -72,16 +72,16 @@ public class FixedAspectRatio : MonoBehaviour {
     private readonly Dictionary<Camera, float> cameraBaseFov = new Dictionary<Camera, float>();
 
     /// <summary>
-    /// 移动端 letterbox 目标比例：夹在 [4:3, 16:9] 内跟随屏幕。
-    /// 大折叠/平板展开态接近 1:1（1.1~1.3），若仍固定 16:9 画面只占屏幕约 2/3 高；
-    /// 收紧到 4:3 后视口利用率约 90%，16:9~20:9 主流直板机 clamp 后仍为 16:9，不受影响。
+    /// 移动端 letterbox 目标比例：屏幕比 16:9 更宽（超宽直板/折叠外屏）时 letterbox 到 16:9；
+    /// 更方的屏幕（折叠屏展开态约 1:1、平板 4:3）目标比例直接跟随屏幕——视口铺满全屏无黑边，
+    /// 变窄的水平视野由 <see cref="ApplyCameraFov"/> 放大竖直 FOV 补偿，保持与 16:9 一致的构图。
     /// </summary>
     private float LetterboxTargetAspect {
         get {
 #if UNITY_ANDROID || UNITY_IOS
             float screen = Screen.width / (float)Screen.height;
             if (screen < 1f) screen = 1f / screen;
-            return Mathf.Clamp(screen, 4f / 3f, 16f / 9f);
+            return Mathf.Min(screen, 16f / 9f);
 #else
             return targetAspectRatio;
 #endif
@@ -240,13 +240,15 @@ public class FixedAspectRatio : MonoBehaviour {
     }
 
     private void ApplyCameraViewport() {
-        bool shouldLetterbox = ShouldLetterbox();
         float aspect = Screen.width / (float)Screen.height;
 #if UNITY_ANDROID || UNITY_IOS
         if (aspect < 1f) aspect = 1f / aspect;
 #endif
         float targetAspect = LetterboxTargetAspect;
-        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
+        // 目标比例等于屏幕比例（近方形屏跟随屏幕）时视口已是全屏：
+        // 不切画布渲染模式、不画黑条，仅按需做 FOV 补偿。
+        bool croppedViewport = ShouldLetterbox() && targetAspect < aspect - 0.0005f;
+        Rect targetRect = croppedViewport ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
 
         currentCameraRect = targetRect;
         Camera[] cameras = GetTargetCameras();
@@ -254,8 +256,8 @@ public class FixedAspectRatio : MonoBehaviour {
             cameras[i].rect = currentCameraRect;
         }
 
-        ApplyCameraFov(shouldLetterbox, targetAspect, cameras);
-        ApplyCanvasViewport(shouldLetterbox);
+        ApplyCameraFov(targetAspect, cameras);
+        ApplyCanvasViewport(croppedViewport);
         ApplyBlackBars(currentCameraRect);
     }
 
@@ -388,11 +390,12 @@ public class FixedAspectRatio : MonoBehaviour {
     /// <summary>
     /// 视口比例从 16:9 放宽到更方的 target 后，同一竖直 FOV 下水平视野变窄，
     /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV，
-    /// 使水平视野与 16:9 letterbox 时一致；恢复 16:9 目标时还原原始 FOV。
+    /// 使水平视野与 16:9 构图一致；恢复 16:9 目标时还原原始 FOV。
+    /// 全屏铺满（不 letterbox）的近方形屏同样适用——视口更方，水平视野同样变窄。
     /// </summary>
-    private void ApplyCameraFov(bool letterbox, float targetAspect, Camera[] cameras) {
+    private void ApplyCameraFov(float targetAspect, Camera[] cameras) {
         if (targetAspect <= 0f) return;
-        bool widen = letterbox && targetAspect < targetAspectRatio;
+        bool widen = targetAspect < targetAspectRatio;
         float fovScale = targetAspectRatio / targetAspect;
         for (int i = 0; i < cameras.Length; i++) {
             Camera camera = cameras[i];
