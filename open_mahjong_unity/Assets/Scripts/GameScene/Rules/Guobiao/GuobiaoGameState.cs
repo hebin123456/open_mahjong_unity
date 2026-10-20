@@ -23,6 +23,19 @@ public partial class GuobiaoGameState : TurnBasedGameState {
         ResumeBloodBattle();
     }
 
+    protected override void OnBeforeActionPlayed(TableAction action) {
+        PlayGuobiaoDiscardVoice(action);
+    }
+
+    /// <summary>国标出牌报牌（与萧山共用同一套音源）：申请帧发声、实际帧静默；暗弃不报，多张切报主牌。</summary>
+    private void PlayGuobiaoDiscardVoice(TableAction action) {
+        if (action == null || action.Silent || action.ConcealedDiscard || !action.HasWord("cut")) return;
+        int[] cuts = action.ResolveCutTiles();
+        if (cuts.Length == 0) return;
+        int tile = action.CutTile ?? cuts[cuts.Length - 1];
+        SoundManager.Instance?.PlayXiaoshanTileVoice(tile, 0);
+    }
+
     protected override SettlementEnvelope BuildEnvelope(ShowResultInfo info) {
         SettlementEnvelope env = base.BuildEnvelope(info);
         LastEndExtras = info.revealed_angang_masks != null && info.revealed_angang_masks.Count > 0

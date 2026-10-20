@@ -82,6 +82,7 @@ public sealed class HangzhouGameState : TurnBasedGameState {
             PlayXiaoshanDiscardVoice(action);
             return;
         }
+        PlayHangzhouDiscardVoice(action);
         if (!IsPiaoDiscard(action)) return;
         SoundManager.Instance?.PlayActionSound(action.Seat,"hangzhou_piao");
         GameCanvas.Instance?.ShowActionDisplay(action.Seat,"hangzhou_piao",Session.RoomRule);
@@ -93,6 +94,15 @@ public sealed class HangzhouGameState : TurnBasedGameState {
         if (cuts.Length == 0) return;
         int tile = action.CutTile ?? cuts[cuts.Length - 1];
         SoundManager.Instance?.PlayXiaoshanTileVoice(tile, Info.joker_indicator);
+    }
+    /// <summary>杭州出牌报牌（与萧山共用同一套音源）：申请帧发声、实际帧静默；暗弃不报，多张切报主牌；财飘走专用报声。</summary>
+    private void PlayHangzhouDiscardVoice(TableAction action) {
+        if (action == null || action.Silent || action.ConcealedDiscard || !action.HasWord("cut")) return;
+        int[] cuts = action.ResolveCutTiles();
+        if (cuts.Length == 0) return;
+        int tile = action.CutTile ?? cuts[cuts.Length - 1];
+        if (tile == Joker) return; // 打出白板（财神）已有财飘专用报声
+        SoundManager.Instance?.PlayXiaoshanTileVoice(tile, 0);
     }
     protected override bool TryApplyFamilyWord(TableAction action, string word) => word == "hangzhou_tail_burn";
     protected override void OnShowResult(Response response) { Accept(response.game_info?.hangzhou_info); Accept(response.show_result_info?.hangzhou_info); base.OnShowResult(response); }
