@@ -242,6 +242,8 @@ jobs:
     name: iOS - Xcode -> Unsigned IPA
     needs: export-xcode
     runs-on: macos-15
+    # macOS arm64 runner 容量紧张时排队会被自动取消，不能因此阻塞 APK/Windows 发布
+    continue-on-error: true
     steps:
       - name: Download Xcode project
         uses: actions/download-artifact@v4
@@ -300,6 +302,8 @@ jobs:
   publish:
     name: Publish Release
     needs: [ build-android, build-windows, make-ipa ]
+    # Android + Windows 成功即发布；iOS IPA 失败（含被取消）时跳过 IPA 继续发
+    if: ${{ !cancelled() && needs.build-android.result == 'success' && needs.build-windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -315,6 +319,7 @@ jobs:
           path: artifacts/windows-package
 
       - name: Download unsigned IPA
+        if: ${{ needs.make-ipa.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: unsigned-ipa
@@ -327,7 +332,9 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
           ls -R artifacts
-          echo "Publishing to release '$TAG'"
+          # 只上传实际存在的产物（IPA 可能因 macOS runner 容量问题被跳过）
+          FILES=$(find artifacts -type f | tr '\n' ' ')
+          echo "Publishing [$FILES] to release '$TAG'"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" \
             --title "单机版 + iOS 未签名包 ($TAG)" \
@@ -336,6 +343,4 @@ jobs:
           - Android.apk：安卓安装包
           - Windows.zip：Windows 解压运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
-            "artifacts/android-apk/Android.apk" \
-            "artifacts/windows-package/Windows.zip" \
-            "artifacts/unsigned-ipa/Unsigned.ipa"
+            $FILES
