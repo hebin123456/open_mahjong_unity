@@ -77,7 +77,11 @@ internal static class HangzhouRuleBootstrap {
 internal static class HangzhouFanText {
     public static string Name(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[3] : label; }
     public static string Value(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[2]+"番" : ""; }
-    /// <summary>萧山按「倍率相乘」，番种标注为 ×N倍 而非 N番。</summary>
-    public static string Multiplier(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? "×"+f[2]+"倍" : ""; }
+    /// <summary>萧山按「倍率相乘」，番种标注为 ×N倍 而非 N番；+1 番附加条目（杠后和牌/对手飘）标注 +1番。</summary>
+    public static string Multiplier(string label) {
+        var f=label?.Split('|');
+        if (f == null || f.Length < 4 || f[0] != "HZ") return "";
+        return f[1] == "kong_extra" || f[1] == "piao_fail" ? "+"+f[2]+"番" : "×"+f[2]+"倍";
+    }
     public static bool IsTenWinds(IList<string> fans) => fans != null && fans.Any(f => Name(f)=="十风");
 }

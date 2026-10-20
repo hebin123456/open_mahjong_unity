@@ -117,11 +117,11 @@ public static class WenzhouJokerBadge {
             var go = new GameObject("WenzhouJokerBadge", typeof(RectTransform), typeof(UnityEngine.UI.Image));
             go.transform.SetParent(card.transform, false); existing = go.transform;
             var rect = (RectTransform)existing; rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1, 1);
-            // 加大角标与字号（用户反馈 21×23/16 在实机牌面上看不清）。
-            rect.anchoredPosition = new Vector2(-2, -2); rect.sizeDelta = new Vector2(32, 35);
+            // 加大角标与字号（用户两次反馈看不清：21×23/16 → 32×35/24 → 44×48/32）。
+            rect.anchoredPosition = new Vector2(-2, -2); rect.sizeDelta = new Vector2(44, 48);
             var image = go.GetComponent<UnityEngine.UI.Image>(); image.color = new Color(.70f, .18f, .12f); image.raycastTarget = false;
             var textObject = new GameObject("Caption", typeof(RectTransform), typeof(TextMeshProUGUI)); textObject.transform.SetParent(existing, false);
-            var label = textObject.GetComponent<TextMeshProUGUI>(); label.text = "财"; label.fontSize = 24; label.alignment = TextAlignmentOptions.Center; label.raycastTarget = false;
+            var label = textObject.GetComponent<TextMeshProUGUI>(); label.text = "财"; label.fontSize = 32; label.alignment = TextAlignmentOptions.Center; label.raycastTarget = false;
             label.font = WenzhouPanel.SharedFont;
             label.rectTransform.anchorMin = Vector2.zero; label.rectTransform.anchorMax = Vector2.one;
             label.rectTransform.offsetMin = label.rectTransform.offsetMax = Vector2.zero;

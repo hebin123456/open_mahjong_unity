@@ -167,12 +167,38 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
             display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("tian_hu", "天胡", 1),))
         elif di_hu:
             display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("di_hu", "地胡", 1),))
+        # 「杠后和牌」与「飘」附加（各 +1 番＝底分×1）：
+        # 杠没开——本局开过杠但这次不是杠开，赢家按杠数向各家各收 1 番；
+        # 飘——输家打出财神后未飘成（别家自摸），每飘向赢家多付 1 番。
+        # 番种列表加 ×1 条目用于结算展示；支付明细生成独立条目，受清零钳制。
+        extra_by_payer = {}
+        extra_fans = []
+        if source == "self_draw" and not tian_hu:
+            winner_player = self.player_list[winner]
+            if not winner_player.after_kong and winner_player.kongs_this_round:
+                extra_fans.append(xs.XFan("kong_extra", "杠后和牌", winner_player.kongs_this_round))
+                for i in range(4):
+                    if i != winner:
+                        extra_by_payer.setdefault(i, []).append(
+                            (xs.BASE_SCORE * winner_player.kongs_this_round, "杠后和牌"))
+            piao_failed = False
+            piao_total = 0
+            for i, q in enumerate(self.player_list):
+                if i != winner and q.cai_piao_count:
+                    extra_by_payer.setdefault(i, []).append((xs.BASE_SCORE * q.cai_piao_count, "飘"))
+                    piao_failed = True
+                    piao_total += q.cai_piao_count
+            if piao_failed:
+                extra_fans.append(xs.XFan("piao_fail", "对手飘", piao_total))
+        if extra_fans:
+            display = replace(display, fans=tuple(display.fans) + tuple(extra_fans))
         payment = xs.settle_win(display, winner, self.dealer_index, self.dealer_streak,
                                 self._seat_claims(), base_score=xs.BASE_SCORE,
                                 total_cap=self.total_cap, dealer_cap=self.DEALER_STREAK_CAP,
                                 tian_hu=tian_hu, di_hu=di_hu,
                                 current_scores=[q.score for q in self.player_list],
-                                no_debt=bool(self.starting_score) and not self.allow_negative)
+                                no_debt=bool(self.starting_score) and not self.allow_negative,
+                                extra_by_payer=extra_by_payer or None)
         changes = list(payment.changes)
         entry = dict(winner=winner, source=source, tile=tile if source == "self_draw" else 0,
                      discarder=None, kong_player=None, points=payment.base_points,

@@ -12,6 +12,7 @@ class HangzhouPlayer(ZhongyongPlayer):
     drawn_after_cai: bool = False
     chi_count: int = 0
     had_meld_action: bool = False
+    kongs_this_round: int = 0
 
     def reset_for_round(self, round_time):
         super().reset_for_round(round_time)
@@ -19,3 +20,4 @@ class HangzhouPlayer(ZhongyongPlayer):
         self.draw_kind = ""
         self.pre_draw_tiles = []
         self.cai_piao_count = self.chi_count = 0
+        self.kongs_this_round = 0

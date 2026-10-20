@@ -179,6 +179,7 @@ class HandFlow:
             mask[called:called] = [3, tile]
             p.combination_tiles[position], p.combination_mask[position] = code, mask
         p.has_draw_slot = False
+        p.kongs_this_round += 1
         self._owner_operation(index, meld=True)
         self._event(action, index, tile=tile, meld_code=code, combination_mask=mask, is_mo_gang=drawn)
         # Only self-draw wins are legal: there is no rob-kong response window.

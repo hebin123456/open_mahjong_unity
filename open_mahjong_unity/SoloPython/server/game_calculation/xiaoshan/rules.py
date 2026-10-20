@@ -86,7 +86,13 @@ class XWinScore:
 
     @property
     def fan_names(self):
-        return [f"{fan.name}（×{fan.multiplier}）" for fan in self.fans]
+        names = []
+        for fan in self.fans:
+            if fan.id in ("kong_extra", "piao_fail"):
+                names.append(f"{fan.name}（+{fan.multiplier}番）")
+            else:
+                names.append(f"{fan.name}（×{fan.multiplier}）")
+        return names
 
     def as_dict(self):
         return {**asdict(self), "rule_version": RULE_VERSION,
@@ -381,11 +387,13 @@ def _validate_seats(winner, dealer):
 def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
                base_score=BASE_SCORE, total_cap=DEFAULT_TOTAL_CAP,
                dealer_cap=DEFAULT_DEALER_CAP, tian_hu=False, di_hu=False,
-               current_scores=None, no_debt=False):
+               current_scores=None, no_debt=False, extra_by_payer=None):
     """萧山结算：连庄倍数 + 承包关系；天胡通杀、地胡按封顶结算。
 
     ``no_debt``（清零制，持有开局底分时启用）：输家最多输光手上的分，
     付不起的部分不追讨，分值不存在负数——天胡把赢家之外全部清零即此语义。
+    ``extra_by_payer``：按座位的附加支付条目（如「杠后和牌」「飘」各 +1 番），
+    每项生成独立支付明细并计入赢家收入，同样受清零钳制。
     """
     if not isinstance(score, XWinScore):
         raise ValueError("缺少合法和牌计分")
@@ -425,12 +433,20 @@ def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
     if not transfers:
         transfers = [Transfer(seat, winner, amount, "自摸")
                      for seat, amount in normal.items()]
+    for seat, items in sorted((extra_by_payer or {}).items()):
+        for points, reason in items:
+            if seat != winner and points > 0:
+                transfers.append(Transfer(seat, winner, points, reason))
     changes = [0] * 4
     settled = []
+    remaining = ({seat: max(0, int(score)) for seat, score in enumerate(current_scores)}
+                 if no_debt and current_scores is not None else None)
     for transfer in transfers:
         amount = transfer.points
-        if no_debt and current_scores is not None:
-            amount = min(amount, max(0, int(current_scores[transfer.payer])))
+        if remaining is not None:
+            # 清零制逐条扣减剩余持分：正常支付与附加条目（杠后和牌/飘）合计不得超持分。
+            amount = min(amount, remaining[transfer.payer])
+            remaining[transfer.payer] -= amount
         if amount != transfer.points:
             transfer = replace(transfer, points=amount)
         settled.append(transfer)

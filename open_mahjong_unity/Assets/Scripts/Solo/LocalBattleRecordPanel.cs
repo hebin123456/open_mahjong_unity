@@ -43,6 +43,9 @@ public class LocalBattleRecordPanel : MonoBehaviour {
             DontDestroyOnLoad(go);
             var canvas = go.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            // 对局界面（GameCanvas 等）在 BoardUI/PageUI 层，Default 层的 sortingOrder 再高也会被盖住，
+            // 战绩浮层须挂在最高的 OverlayUI 层才能浮在所有界面上。
+            canvas.sortingLayerID = SortingLayer.NameToID("OverlayUI");
             canvas.sortingOrder = 900;
             var scaler = go.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
