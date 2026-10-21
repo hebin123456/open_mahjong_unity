@@ -4,7 +4,6 @@ using UnityEngine;
 using UnityEngine.UI;
 
 public partial class CreatePanel {
-    private GameObject XiaoshanScoreRow;
     private GameObject XiaoshanStartingScorePanel;
     private GameObject XiaoshanTotalCapPanel;
     private TMP_Dropdown XiaoshanStartingScoreDropdown;
@@ -13,47 +12,20 @@ public partial class CreatePanel {
     private static readonly int[] XiaoshanStartingScores = { 50, 100, 200 };
     private static readonly int[] XiaoshanTotalCaps = { 32, 64 };
 
-    /// <summary>运行时补齐萧山馆规选项（开局积分/倍率封顶）；克隆通用下拉模板，不依赖场景改动。</summary>
+    /// <summary>运行时补齐萧山馆规选项（开局积分/倍率封顶）。
+    /// 两个下拉克隆通用模板后直接放进开关网格（ToggleContainer）作为网格单元，
+    /// 与「有财神必须爆头」等开关同一布局、同一位置区域——
+    /// 自建行方案（单独 LayoutElement 高度）在真实设备上无法稳定显示，弃用。</summary>
     private void EnsureXiaoshanScoreControls() {
         EnsureXiaoshanBaotouToggle();
-        if (XiaoshanScoreRow == null) {
-            XiaoshanScoreRow = new GameObject("XiaoshanScoreRow",
-                typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
-            // 锚定到规则区大容器（开关网格行的父级，VerticalLayoutGroup）独立成行：
-            // 开关行是 4 列自适应网格（每格约 339px），行容器塞进去会被压成一个窄格，
-            // 和「有财神必须爆头」挤在同一排而无法辨认；独立成行则显示在开关排正下方。
-            Transform gridRow = XiaoshanBaotouToggle != null
-                ? XiaoshanBaotouToggle.transform.parent
-                : HepaiWayPanel != null ? HepaiWayPanel.transform.parent : null;
-            Transform anchor = gridRow != null && gridRow.parent != null ? gridRow.parent : null;
-            if (anchor != null) XiaoshanScoreRow.transform.SetParent(anchor, false);
-            HorizontalLayoutGroup layout = XiaoshanScoreRow.GetComponent<HorizontalLayoutGroup>();
-            layout.spacing = 12f;
-            layout.childControlWidth = layout.childControlHeight = true;
-            layout.childForceExpandWidth = true;
-            // 子面板克隆自 HepaiConfig，本体没有 LayoutElement 高度字段；
-            // 若不强制扩展，会在 childControlHeight 行内被算成 0 高而不可见。
-            layout.childForceExpandHeight = true;
-            XiaoshanScoreRow.GetComponent<LayoutElement>().minHeight = 64f;
-            if (gridRow != null) {
-                // 插到开关网格行之后（开局积分/倍率封顶显示在萧山开关排的下一行）。
-                XiaoshanScoreRow.transform.SetSiblingIndex(gridRow.GetSiblingIndex() + 1);
-            }
-        }
+        Transform grid = XiaoshanBaotouToggle != null ? XiaoshanBaotouToggle.transform.parent : null;
         XiaoshanStartingScorePanel = EnsureXiaoshanDropdown(XiaoshanStartingScorePanel, "XiaoshanStartingScore", "开局积分");
         XiaoshanTotalCapPanel = EnsureXiaoshanDropdown(XiaoshanTotalCapPanel, "XiaoshanTotalCap", "倍率封顶");
         foreach (GameObject panel in new[] { XiaoshanStartingScorePanel, XiaoshanTotalCapPanel }) {
             if (panel == null) continue;
-            panel.transform.SetParent(XiaoshanScoreRow.transform, false);
-            LayoutElement element = panel.GetComponent<LayoutElement>();
-            if (element == null) element = panel.AddComponent<LayoutElement>();
-            element.minWidth = 100f;
-            element.preferredWidth = 180f;
-            element.flexibleWidth = 1f;
-            // HepaiConfig 模板本体 64 高但无 LayoutElement；克隆后高度字段为空，
-            // 在 childControlHeight 的行内会被压成 0 高导致整行看似不存在，必须显式补上。
-            element.minHeight = 64f;
-            element.preferredHeight = 64f;
+            // 追加为网格最后两个单元（此时萧山开关已克隆完，恰好紧随其后）；
+            // GridLayoutGroup 会强制把子物体摆成与开关相同的格子尺寸。
+            if (grid != null && panel.transform.parent != grid) panel.transform.SetParent(grid, false);
         }
         XiaoshanStartingScoreDropdown = XiaoshanStartingScorePanel != null
             ? XiaoshanStartingScorePanel.GetComponentInChildren<TMP_Dropdown>(true) : null;
@@ -78,7 +50,7 @@ public partial class CreatePanel {
             XiaoshanTotalCapDropdown.SetValueWithoutNotify(1); // 默认 64 倍
             XiaoshanTotalCapDropdown.RefreshShownValue();
         }
-        if (XiaoshanScoreRow != null) XiaoshanScoreRow.SetActive(false);
+        SetXiaoshanOptionsVisible(false);
     }
 
     private GameObject EnsureXiaoshanDropdown(GameObject existing, string name, string labelText) {
@@ -95,7 +67,8 @@ public partial class CreatePanel {
     }
 
     private void SetXiaoshanOptionsVisible(bool visible) {
-        if (XiaoshanScoreRow != null) XiaoshanScoreRow.SetActive(visible);
+        if (XiaoshanStartingScorePanel != null) XiaoshanStartingScorePanel.SetActive(visible);
+        if (XiaoshanTotalCapPanel != null) XiaoshanTotalCapPanel.SetActive(visible);
     }
 
     private int GetXiaoshanStartingScore() {

@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import random
 import time
 
 from ..public.vote_manager import vote_checkpoint
@@ -206,9 +207,24 @@ class Runtime:
                 await asyncio.gather(*tasks, return_exceptions=True)
         return responses
 
+    def _rotate_initial_dealer_randomly(self):
+        """首局庄家随机：按对局主种子随机轮转一次座位，不再固定玩家先出牌。
+
+        initialize_round 恒定让 0 号位坐庄（拿第 14 张、首个行动），故用随机轮转
+        把随机一家转到 0 号位，而不是直接改庄家下标；后续局仍由 next_dealer 胜者
+        轮庄。轮转基于主种子，同一对局可复现，牌谱与承诺不受影响。
+        """
+        rotation = random.Random(self.master_seed).randrange(len(self.player_list))
+        if not rotation:
+            return
+        self.player_list = self.player_list[rotation:] + self.player_list[:rotation]
+        for index, player in enumerate(self.player_list):
+            player.player_index = index
+
     async def run_game_loop(self):
         self._async_hints_enabled = True
         try:
+            self._rotate_initial_dealer_randomly()
             self.start_game_recording()
             while True:
                 self.initialize_round()

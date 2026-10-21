@@ -76,19 +76,17 @@ public class FixedAspectRatio : MonoBehaviour {
     private readonly Dictionary<Camera, float> cameraBaseFov = new Dictionary<Camera, float>();
 
     /// <summary>
-    /// 移动端 letterbox 目标比例：屏幕比 16:9 更宽（超宽直板/折叠外屏）时 letterbox 到 16:9；
-    /// 更方的屏幕（折叠屏展开态约 1:1、平板 4:3）目标比例直接跟随屏幕——视口铺满全屏无黑边，
-    /// 变窄的水平视野由 <see cref="ApplyCameraFov"/> 放大竖直 FOV 补偿，保持与 16:9 一致的构图。
+    /// letterbox 目标比例：屏幕比 16:9 更宽（超宽直板/折叠外屏/桌面超宽窗口）时 letterbox 到 16:9；
+    /// 更方的屏幕（折叠屏展开态约 1:1、平板 4:3、桌面 16:10/4:3 显示器）目标比例直接跟随屏幕——
+    /// 视口铺满全屏无黑边，变窄的水平视野由 <see cref="ApplyCameraFov"/> 放大竖直 FOV 补偿，
+    /// 保持与 16:9 一致的横向构图。桌面端与移动端同规则：此前桌面更方窗口取消 letterbox 后
+    /// 未做 FOV 补偿，牌桌横向被裁切放大，左家吃碰区被推到左下被 2D 手牌遮挡。
     /// </summary>
     private float LetterboxTargetAspect {
         get {
-#if UNITY_ANDROID || UNITY_IOS
             float screen = Screen.width / (float)Screen.height;
             if (screen < 1f) screen = 1f / screen;
-            return Mathf.Min(screen, 16f / 9f);
-#else
-            return targetAspectRatio;
-#endif
+            return Mathf.Min(screen, targetAspectRatio);
         }
     }
 
