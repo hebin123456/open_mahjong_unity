@@ -6,6 +6,7 @@ using UnityEngine.UI;
 public partial class CreatePanel {
     private Toggle XiaoshanBaotouToggle;
     private Toggle XiaoshanNegativeToggle;
+    private Toggle XiaoshanClaimToggle;
 
     /// <summary>运行时克隆萧山专属「有财神必须爆头」开关，避免场景内重复手工挂接。</summary>
     private void EnsureXiaoshanBaotouToggle() {
@@ -26,11 +27,21 @@ public partial class CreatePanel {
         XiaoshanNegativeToggle.onValueChanged = new Toggle.ToggleEvent();
         label = XiaoshanNegativeToggle.GetComponentInChildren<TMP_Text>(true);
         if (label != null) label.text = "积分小于 0 继续";
+
+        XiaoshanClaimToggle = Instantiate(TacticalCallToggle, TacticalCallToggle.transform.parent);
+        XiaoshanClaimToggle.name = "XiaoshanClaim";
+        // 「允许三摊承包」默认开启；关闭时对同一家最多吃碰 2 摊。
+        XiaoshanClaimToggle.SetIsOnWithoutNotify(true);
+        XiaoshanClaimToggle.group = null;
+        XiaoshanClaimToggle.onValueChanged = new Toggle.ToggleEvent();
+        label = XiaoshanClaimToggle.GetComponentInChildren<TMP_Text>(true);
+        if (label != null) label.text = "允许三摊承包";
     }
 
     /// <summary>
     /// 萧山馆规开关随建房请求下发。「积分小于 0 继续」：输家可扣成负分且不触发
-    /// 清零终局；两者都关闭时不携带，服务端按默认关闭处理。
+    /// 清零终局；「允许三摊承包」默认开启，仅关闭时携带 false；其余开关关闭时
+    /// 不携带，服务端按默认关闭处理。
     /// </summary>
     private Dictionary<string, object> BuildHangzhouDetailedConfig() {
         if (_ruleState != XiaoshanRuleBootstrap.RuleId) return null;
@@ -39,6 +50,8 @@ public partial class CreatePanel {
             (config ??= new Dictionary<string, object>())["baotou_required"] = true;
         if (XiaoshanNegativeToggle != null && XiaoshanNegativeToggle.isOn)
             (config ??= new Dictionary<string, object>())["allow_negative"] = true;
+        if (XiaoshanClaimToggle != null && !XiaoshanClaimToggle.isOn)
+            (config ??= new Dictionary<string, object>())["claim_allowed"] = false;
         return config;
     }
 

@@ -154,6 +154,8 @@ class HandFlow:
         p.combination_tiles.append(code)
         p.combination_mask.append(mask)
         p.has_draw_slot = p.after_kong = False
+        if action == "gang":
+            p.kong_concealed = False
         p.pre_draw_tiles = []
         p.draw_kind = ""
         self.player_list[actor].discard_tiles.pop()
@@ -180,6 +182,8 @@ class HandFlow:
             p.combination_tiles[position], p.combination_mask[position] = code, mask
         p.has_draw_slot = False
         p.kongs_this_round += 1
+        # 暗杠开×4、明杠开×2（萧山）：补牌前记录触发杠的明暗，随摸牌上下文进入计分。
+        p.kong_concealed = action == "angang"
         self._owner_operation(index, meld=True)
         self._event(action, index, tile=tile, meld_code=code, combination_mask=mask, is_mo_gang=drawn)
         # Only self-draw wins are legal: there is no rob-kong response window.

@@ -89,12 +89,16 @@ class WinContext:
 
     self_drawn: bool = True
     after_kong: bool = False
+    # 触发杠开的最近一次杠是否暗杠（萧山：暗杠开×4、明杠开×2；杭州不区分）。
+    kong_concealed: bool = False
     cai_piao_count: int = 0
     pre_draw_tiles: tuple[int, ...] | None = None
 
     def __post_init__(self):
         if type(self.self_drawn) is not bool or type(self.after_kong) is not bool:
             raise ValueError("摸牌来源须为布尔值")
+        if type(self.kong_concealed) is not bool:
+            raise ValueError("杠开明暗须为布尔值")
         if type(self.cai_piao_count) is not int or not 0 <= self.cai_piao_count <= 4:
             raise ValueError("连续财飘次数必须为 0 至 4")
         if self.pre_draw_tiles is not None:

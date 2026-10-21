@@ -49,6 +49,9 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         self.baotou_required = bool(self.detailed_config.get("baotou_required", False))
         # 「积分小于 0 继续」：开启后输家可扣成负分且不触发清零终局，打满局数才收场。
         self.allow_negative = bool(self.detailed_config.get("allow_negative", False))
+        # 「允许三摊承包」：开启时对同一家累计吃碰满三摊触发承包/反承包；
+        # 关闭后对同一家最多吃碰 2 摊（第三次吃碰该家不可用，杠不受限）。
+        self.allow_claim = bool(self.detailed_config.get("claim_allowed", True))
         self.claim_from = [[0] * 4 for _ in range(4)]
 
     @staticmethod
@@ -125,6 +128,7 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
             return None
         return xs.evaluate_win(p.hand_tiles, self._meld_frames(p), tile,
             WinContext(self_drawn=True, after_kong=p.after_kong,
+                       kong_concealed=p.kong_concealed,
                        cai_piao_count=p.cai_piao_count if p.drawn_after_cai else 0,
                        pre_draw_tiles=tuple(p.pre_draw_tiles)),
             joker=self.joker_indicator, total_cap=self.total_cap,
@@ -164,9 +168,9 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
             di_hu = not tian_hu and self._is_di_hu(winner)
         display = quote
         if tian_hu:
-            display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("tian_hu", "天胡", 1),))
+            display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("tian_hu", "天胡", self.total_cap),))
         elif di_hu:
-            display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("di_hu", "地胡", 1),))
+            display = replace(quote, fans=tuple(quote.fans) + (xs.XFan("di_hu", "地胡", self.total_cap),))
         # 「杠后和牌」与「飘」附加（各 +1 番＝底分×1）：
         # 杠没开——本局开过杠但这次不是杠开，赢家按杠数向各家各收 1 番；
         # 飘——输家打出财神后未飘成（别家自摸），每飘向赢家多付 1 番。
@@ -238,4 +242,5 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         data["starting_score"] = self.starting_score
         data["baotou_required"] = self.baotou_required
         data["allow_negative"] = self.allow_negative
+        data["claim_allowed"] = self.allow_claim
         return data

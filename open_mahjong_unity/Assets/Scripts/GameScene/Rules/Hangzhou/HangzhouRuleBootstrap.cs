@@ -21,7 +21,7 @@ internal static class HangzhouRuleBootstrap {
         string ruleId, string subRule, string displayName, string subRuleDisplay,
         string subRuleWholeName, string shortName, int lobbyOrder,
         string description = null, string settlementFootnote = null, string roundSupplement = null,
-        bool baotouRequiredSwitch = false, bool allowNegativeSwitch = false) {
+        bool baotouRequiredSwitch = false, bool allowNegativeSwitch = false, bool claimAllowedSwitch = false) {
         RuleNameDictionary.WholeName[ruleId] = displayName;
         RuleNameDictionary.WholeName[subRule] = subRuleWholeName;
         RuleNameDictionary.ShortName[ruleId] = shortName;
@@ -34,6 +34,7 @@ internal static class HangzhouRuleBootstrap {
         };
         if (baotouRequiredSwitch) createRoomDefaults[CreateRoomKeys.BaotouRequired] = false;
         if (allowNegativeSwitch) createRoomDefaults[CreateRoomKeys.AllowNegative] = false;
+        if (claimAllowedSwitch) createRoomDefaults[CreateRoomKeys.ClaimAllowed] = true;
         RuleRegistry.Register(new RuleManifest {
             RuleId = ruleId, DefaultSubRule = subRule,
             DisplayName = displayName, LobbyName = displayName, LobbyOrder = lobbyOrder,

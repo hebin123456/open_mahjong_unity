@@ -50,4 +50,5 @@ public static class CreateRoomKeys {
     public const string WallFlowers = "wall_flowers";
     public const string BaotouRequired = "baotou_required";
     public const string AllowNegative = "allow_negative";
+    public const string ClaimAllowed = "claim_allowed";
 }

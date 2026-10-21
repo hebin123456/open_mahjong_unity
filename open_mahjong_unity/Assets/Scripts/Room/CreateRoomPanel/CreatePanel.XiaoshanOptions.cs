@@ -61,7 +61,7 @@ public partial class CreatePanel {
             var labels = new List<string>();
             foreach (int cap in XiaoshanTotalCaps) labels.Add(cap + "倍");
             XiaoshanTotalCapDropdown.AddOptions(labels);
-            XiaoshanTotalCapDropdown.SetValueWithoutNotify(0); // 默认 32 倍
+            XiaoshanTotalCapDropdown.SetValueWithoutNotify(1); // 默认 64 倍
             XiaoshanTotalCapDropdown.RefreshShownValue();
         }
         if (XiaoshanScoreRow != null) XiaoshanScoreRow.SetActive(false);
@@ -93,6 +93,6 @@ public partial class CreatePanel {
     private int GetXiaoshanTotalCap() {
         return XiaoshanTotalCapDropdown != null
             ? XiaoshanTotalCaps[Mathf.Clamp(XiaoshanTotalCapDropdown.value, 0, XiaoshanTotalCaps.Length - 1)]
-            : 32;
+            : 64;
     }
 }

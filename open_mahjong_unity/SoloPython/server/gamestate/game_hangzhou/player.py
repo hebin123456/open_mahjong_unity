@@ -6,6 +6,7 @@ from ..game_zhongyong.ZhongyongGameState import ZhongyongPlayer
 @dataclass
 class HangzhouPlayer(ZhongyongPlayer):
     after_kong: bool = False
+    kong_concealed: bool = False
     draw_kind: str = ""
     pre_draw_tiles: list[int] = field(default_factory=list)
     cai_piao_count: int = 0
@@ -17,6 +18,7 @@ class HangzhouPlayer(ZhongyongPlayer):
     def reset_for_round(self, round_time):
         super().reset_for_round(round_time)
         self.after_kong = self.drawn_after_cai = self.had_meld_action = False
+        self.kong_concealed = False
         self.draw_kind = ""
         self.pre_draw_tiles = []
         self.cai_piao_count = self.chi_count = 0

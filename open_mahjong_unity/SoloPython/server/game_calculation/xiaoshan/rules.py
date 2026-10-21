@@ -15,12 +15,12 @@ from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from functools import lru_cache
 
-from ..hangzhou.rules import HONORS, JOKER, TILES, WinContext, _luxury_pairs, ten_winds_eligible
+from ..hangzhou.rules import HONORS, JOKER, TILES, WinContext, ten_winds_eligible
 from ..jokers import ExternalMeld, JokerPolicy, can_form_melds, can_form_pairs, iter_winning_shapes
 
-RULE_VERSION = "xiaoshan-house-2025-v1"
+RULE_VERSION = "xiaoshan-house-2025-v2"
 SUB_RULE = "xiaoshan/xiaoshan"
-DEFAULT_TOTAL_CAP = 32
+DEFAULT_TOTAL_CAP = 64
 DEFAULT_DEALER_CAP = 3          # 2**3 = 8 倍连庄封顶
 BASE_SCORE = 1
 CLAIM_THRESHOLD = 3             # 累计吃碰三次形成承包关系
@@ -30,13 +30,14 @@ DEFAULT_STARTING_SCORE = 0
 
 
 def normalize_config(raw=None):
-    """萧山房规可协商总倍率封顶、开局积分、「有财神必须爆头」与「积分小于 0 继续」开关；其余沿用杭州引擎的配置形状。"""
+    """萧山房规可协商总倍率封顶、开局积分、「有财神必须爆头」、「积分小于 0 继续」与「允许三摊承包」开关；其余沿用杭州引擎的配置形状。"""
     if raw is None:
         raw = {}
-    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score", "baotou_required", "allow_negative"}:
+    if not isinstance(raw, dict) or set(raw) - {"rule_version", "total_cap", "starting_score", "baotou_required", "allow_negative", "claim_allowed"}:
         raise ValueError("萧山麻将没有其它馆规选项")
     version = raw.get("rule_version", RULE_VERSION)
-    if version not in (RULE_VERSION, "mil-hangzhou-2025-om1"):
+    # v1 为对齐书面番种表（财飘×4、明/暗杠开、大吊车、乱风等）前的旧版本，保留兼容旧房间配置。
+    if version not in (RULE_VERSION, "xiaoshan-house-2025-v1", "mil-hangzhou-2025-om1"):
         raise ValueError("不支持的萧山麻将规则版本")
     cap = raw.get("total_cap", DEFAULT_TOTAL_CAP)
     if cap not in (32, 64):
@@ -50,9 +51,12 @@ def normalize_config(raw=None):
     allow_negative = raw.get("allow_negative", False)
     if not isinstance(allow_negative, bool):
         raise ValueError("积分小于 0 继续开关只能是开或关")
+    claim_allowed = raw.get("claim_allowed", True)
+    if not isinstance(claim_allowed, bool):
+        raise ValueError("允许三摊承包开关只能是开或关")
     return {"rule_version": RULE_VERSION, "total_cap": cap,
             "starting_score": starting, "baotou_required": baotou,
-            "allow_negative": allow_negative}
+            "allow_negative": allow_negative, "claim_allowed": claim_allowed}
 
 
 @dataclass(frozen=True)
@@ -261,14 +265,48 @@ def _decomposition(shape, hand):
             "winning_logical_tile": shape.winning_logical_tile}
 
 
-def _shape_fans(shape, hand, melds, context, joker):
+def _luxury_pair_count(hand, joker):
+    """七对豪华档：实体四张同牌的组数；四张财神仅在保持两对字面百搭对时计一组。
+
+    与杭州 ``_luxury_pairs`` 判定同语义，但返回组数以支持按 docx「每组再×2」
+    的档位（一杠×8、双豪华×16、三豪华×32）。
+    """
+    counts = Counter(hand)
+    quads = sum(1 for tile, n in counts.items() if tile != joker and n == 4)
+    if counts[joker] == 4 and all(n % 2 == 0 for tile, n in counts.items() if tile != joker):
+        quads += 1
+    return quads
+
+
+def _is_diaoche(hand, win_tile, melds, context, joker):
+    """大吊车（单钓将）：standard 拆解下听牌唯一且恰为和牌张。
+
+    以权威摸牌前 13 张计算实际可和实体牌集合，仅当唯一进张就是和牌张时
+    成立；财神（万能牌）可补任意进张，不计入唯一性判定；七对拆解不参与
+    判定（七对的单张听牌不按大吊车计）。
+    """
+    pre = list(context.pre_draw_tiles) if context.pre_draw_tiles is not None else None
+    if pre is None:
+        pre = list(hand)
+        pre.remove(win_tile)
+    if len(pre) != 13:
+        return False
+    waits = waiting_tiles(pre, melds, joker)
+    waits.discard(joker)
+    return waits == {win_tile}
+
+
+def _shape_fans(shape, hand, melds, context, joker, win_tile, diaoche=False):
     """同一副合法拆解下的全部番种；倍率逐项相乘，不做加法封顶。"""
     fans = []
     logical = shape.logical_tiles
     if shape.kind == "seven_pairs":
-        luxury, _ = _luxury_pairs(hand, (joker,))
-        fans.append(XFan("luxury_seven_pairs", "豪华七对", 16) if luxury
-                    else XFan("seven_pairs", "七对子", 4))
+        quads = _luxury_pair_count(hand, joker)
+        if quads:
+            name = {1: "豪华七对", 2: "双豪华七对"}.get(quads, f"{quads}豪华七对")
+            fans.append(XFan("luxury_seven_pairs", name, 4 * 2 ** quads))
+        else:
+            fans.append(XFan("seven_pairs", "七对子", 4))
     else:
         non_pair = [g for g in shape.groups if g.kind != "pair"]
         codes = [value[0] if isinstance(value, tuple) else value for value in melds]
@@ -276,18 +314,21 @@ def _shape_fans(shape, hand, melds, context, joker):
             fans.append(XFan("quandao", "全倒", 2))
         if non_pair and all(g.kind in ("triplet", "kong") for g in non_pair):
             fans.append(XFan("pengpeng", "碰碰胡", 2))
+        if diaoche:
+            fans.append(XFan("diaoche", "大吊车", 2))
     if _is_qingyise(shape):
         fans.append(XFan("qingyise", "清一色", 8))
     elif shape.logical_tiles and all(t in HONORS for t in shape.logical_tiles):
-        fans.append(XFan("ziyise", "字一色", 16))
-    # 爆头＝财神做将：按本拆解判定，而非摸牌前启发式；财飘依附爆头。
+        fans.append(XFan("luan_feng", "乱风", 32))
+    # 爆头＝财神做将：按本拆解判定，而非摸牌前启发式；财飘依附爆头，每票×4。
     if _has_eye_joker(shape, joker):
         fans.append(XFan("baotou", "爆头", 2))
         for index in range(context.cai_piao_count):
             label = "财飘" if context.cai_piao_count == 1 else f"财飘×{index + 1}"
-            fans.append(XFan("cai_piao", label, 2))
+            fans.append(XFan("cai_piao", label, 4))
     if context.after_kong:
-        fans.append(XFan("kong_draw", "杠开", 2))
+        fans.append(XFan("kong_draw", "暗杠开" if context.kong_concealed else "明杠开",
+                         4 if context.kong_concealed else 2))
     if not any(t == joker for t in hand):
         fans.append(XFan("no_joker", "无财神", 2))
     if not fans:
@@ -333,12 +374,16 @@ def evaluate_win(hand, melds=(), win_tile=None, context=None, joker=JOKER,
                    and any(t == joker for t in hand))
     policy = _policy(joker)
     best = None
-    for shape in iter_winning_shapes(hand, external, policy, winning_tile=win_tile,
-                                     equivalence="logical_structure"):
+    shapes = list(iter_winning_shapes(hand, external, policy, winning_tile=win_tile,
+                                      equivalence="logical_structure"))
+    # 大吊车与具体拆解无关（听牌是手牌整体属性），对存在 standard 拆解的手牌判一次。
+    diaoche = (any(shape.kind == "standard" for shape in shapes)
+               and _is_diaoche(hand, win_tile, melds, context, joker))
+    for shape in shapes:
         if baotou_only and not _has_eye_joker(shape, joker) and not _baotou_exempt(shape):
             continue
         score = XWinScore(shape.kind,
-                          _shape_fans(shape, hand, melds, context, joker),
+                          _shape_fans(shape, hand, melds, context, joker, win_tile, diaoche),
                           total_cap, _decomposition(shape, hand))
         if best is None or score.total_multiplier > best.total_multiplier:
             best = score
@@ -388,10 +433,10 @@ def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
                base_score=BASE_SCORE, total_cap=DEFAULT_TOTAL_CAP,
                dealer_cap=DEFAULT_DEALER_CAP, tian_hu=False, di_hu=False,
                current_scores=None, no_debt=False, extra_by_payer=None):
-    """萧山结算：连庄倍数 + 承包关系；天胡通杀、地胡按封顶结算。
+    """萧山结算：连庄倍数 + 承包关系；天胡/地胡按封顶顶格结算（不再相乘）。
 
     ``no_debt``（清零制，持有开局底分时启用）：输家最多输光手上的分，
-    付不起的部分不追讨，分值不存在负数——天胡把赢家之外全部清零即此语义。
+    付不起的部分不追讨，分值不存在负数。
     ``extra_by_payer``：按座位的附加支付条目（如「杠后和牌」「飘」各 +1 番），
     每项生成独立支付明细并计入赢家收入，同样受清零钳制。
     """
@@ -403,23 +448,7 @@ def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
     multiplier = 2 ** dealer_streak
     claim_from = claim_from or [[0] * 4 for _ in range(4)]
 
-    if tian_hu:
-        scores = list(current_scores or [0] * 4)
-        changes = [0] * 4
-        transfers = []
-        for seat in range(4):
-            if seat == winner:
-                continue
-            amount = max(0, int(scores[seat]))
-            if amount:
-                changes[seat] -= amount
-                changes[winner] += amount
-                transfers.append(Transfer(seat, winner, amount, "天胡通杀"))
-        return Settlement(tuple(changes), tuple(transfers),
-                          sum(item.points for item in transfers), multiplier,
-                          sum(item.points for item in transfers))
-
-    points = base_score * total_cap if di_hu else score.points
+    points = base_score * total_cap if (tian_hu or di_hu) else score.points
     normal = {seat: points * (multiplier if winner == dealer or seat == dealer else 1)
               for seat in range(4) if seat != winner}
     total = sum(normal.values())
