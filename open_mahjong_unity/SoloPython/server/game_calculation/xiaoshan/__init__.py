@@ -1,4 +1,4 @@
-"""萧山麻将（杭州麻将拓展·家庭房规 v1.3）计分：番种倍率相乘。"""
+"""萧山麻将（杭州麻将拓展·家庭房规 v2.0）计分：番种倍率相乘。"""
 
 from .rules import (
     BASE_SCORE, CLAIM_THRESHOLD, DEFAULT_DEALER_CAP, DEFAULT_TOTAL_CAP, JOKER,
