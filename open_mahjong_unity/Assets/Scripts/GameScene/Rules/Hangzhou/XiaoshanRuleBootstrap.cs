@@ -20,7 +20,8 @@ internal static class XiaoshanRuleBootstrap {
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     public static void Register() {
-        HangzhouRuleBootstrap.RegisterVariant(RuleId, SubRule, "萧山麻将", "家庭房规 v2.0", "萧山麻将（家庭房规）", "萧山", 13,
+        // lobbyOrder=0：单机大厅把萧山麻将排在建房规则列表最前面。
+        HangzhouRuleBootstrap.RegisterVariant(RuleId, SubRule, "萧山麻将", "家庭房规 v2.0", "萧山麻将（家庭房规）", "萧山", 0,
             Description,
             "番种倍率相乘，默认64倍封顶\n老庄翻番；三摊承包可关；明杠开×2/暗杠开×4，财飘×4、飘不成+1番；清零制可选。",
             "倍率相乘", baotouRequiredSwitch: true, allowNegativeSwitch: true, claimAllowedSwitch: true);
