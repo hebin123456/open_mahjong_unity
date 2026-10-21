@@ -316,6 +316,8 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
             if key in opts:
                 data[key] = opts[key]
     elif rule == XIAOSHAN_RULE:
+        # 萧山开局默认 1 秒节奏（其余玩法沿用 0.5 秒快速档）。
+        data["bot_speed"] = "medium"
         # 萧山馆规：开局积分、总倍率封顶与房规开关（如「有财神必须爆头」），
         # 经 detailed_config 交引擎 normalize_config 校验。
         detailed = {key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts}
@@ -380,7 +382,8 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "",
         "round_timer": 300,
         "step_timer": 20,
         "is_game_running": False,
-        "bot_speed": "fast",
+        # 萧山开局默认 1 秒节奏，其余玩法 0.5 秒。
+        "bot_speed": "medium" if rule == XIAOSHAN_RULE else "fast",
         "is_player_set_random_seed": False,
         "open_cuohe": False,
         "cuohe_type": 0,

@@ -5,9 +5,8 @@ public sealed class CreateRoomHelpTrigger : MonoBehaviour, IPointerEnterHandler,
     [SerializeField] private CreatePanel owner;
     [SerializeField, TextArea] private string message;
 
-#if UNITY_EDITOR
+    // 运行时克隆的控件（如萧山 DIY 开关）也要能挂说明，Configure 不能限定编辑器。
     public void Configure(CreatePanel panel, string text) { owner = panel; message = text; }
-#endif
 
     internal bool IsOwnedBy(CreatePanel panel) => owner == panel;
     public void OnPointerEnter(PointerEventData eventData) {

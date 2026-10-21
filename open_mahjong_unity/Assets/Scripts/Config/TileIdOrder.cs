@@ -101,6 +101,9 @@ public static class TileIdOrder {
         return new[] { order[0] + 1, order[1] + 1, order[2] + 1 };
     }
 
+    /// <summary>萧山翻财排列是否生效：生效时摸牌也需要立即重排，让白板按财神本牌落位。</summary>
+    public static bool XiaoshanJokerActive => TryGetXiaoshanJoker(out _);
+
     public static int Compare(int a, int b) {
         int ka = SortKey(a);
         int kb = SortKey(b);

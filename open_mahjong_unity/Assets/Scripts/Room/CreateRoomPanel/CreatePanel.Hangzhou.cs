@@ -8,7 +8,7 @@ public partial class CreatePanel {
     private Toggle XiaoshanNegativeToggle;
     private Toggle XiaoshanClaimToggle;
 
-    /// <summary>运行时克隆萧山专属「有财神必须爆头」开关，避免场景内重复手工挂接。</summary>
+    /// <summary>运行时克隆萧山专属 DIY 开关（爆头/负分/三摊承包），并挂接右侧悬浮说明。</summary>
     private void EnsureXiaoshanBaotouToggle() {
         if (XiaoshanBaotouToggle != null || TacticalCallToggle == null) return;
         XiaoshanBaotouToggle = Instantiate(TacticalCallToggle, TacticalCallToggle.transform.parent);
@@ -36,6 +36,20 @@ public partial class CreatePanel {
         XiaoshanClaimToggle.onValueChanged = new Toggle.ToggleEvent();
         label = XiaoshanClaimToggle.GetComponentInChildren<TMP_Text>(true);
         if (label != null) label.text = "允许三摊承包";
+
+        BindXiaoshanHelp(XiaoshanBaotouToggle,
+            "有财神必须爆头：开启后，含财神的和牌须财神做将；杠爆（杠后补牌恰摸进财神）、清一色、七对子豁免。");
+        BindXiaoshanHelp(XiaoshanNegativeToggle,
+            "积分小于 0 继续：开启后输家可扣成负分且不触发清零终局，打满局数才收场；关闭为清零制，任一家 0 分整场结束。");
+        BindXiaoshanHelp(XiaoshanClaimToggle,
+            "允许三摊承包：开启时对同一家累计吃碰满三摊触发承包/反承包；关闭后对同一家最多吃碰 2 摊，不触发承包（杠不属于摊，不受限）。");
+    }
+
+    private void BindXiaoshanHelp(Component control, string message) {
+        if (control == null) return;
+        CreateRoomHelpTrigger trigger = control.GetComponent<CreateRoomHelpTrigger>();
+        if (trigger == null) trigger = control.gameObject.AddComponent<CreateRoomHelpTrigger>();
+        trigger.Configure(this, message);
     }
 
     /// <summary>

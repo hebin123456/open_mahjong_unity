@@ -15,18 +15,26 @@ public partial class CreatePanel {
 
     /// <summary>运行时补齐萧山馆规选项（开局积分/倍率封顶）；克隆通用下拉模板，不依赖场景改动。</summary>
     private void EnsureXiaoshanScoreControls() {
+        EnsureXiaoshanBaotouToggle();
         if (XiaoshanScoreRow == null) {
             XiaoshanScoreRow = new GameObject("XiaoshanScoreRow",
                 typeof(RectTransform), typeof(HorizontalLayoutGroup), typeof(LayoutElement));
-            XiaoshanScoreRow.transform.SetParent(
-                HepaiWayPanel != null ? HepaiWayPanel.transform.parent : transform, false);
+            // 锚定到萧山开关行（「有财神必须爆头」所在容器）：萧山模式下开关行始终可见，
+            // 而「和牌方式」的父容器会整体隐藏，挂在后者下面会导致积分下拉不显示。
+            Transform anchor = XiaoshanBaotouToggle != null
+                ? XiaoshanBaotouToggle.transform.parent
+                : HepaiWayPanel != null ? HepaiWayPanel.transform.parent : null;
+            if (anchor != null) XiaoshanScoreRow.transform.SetParent(anchor, false);
             HorizontalLayoutGroup layout = XiaoshanScoreRow.GetComponent<HorizontalLayoutGroup>();
             layout.spacing = 12f;
             layout.childControlWidth = layout.childControlHeight = true;
             layout.childForceExpandWidth = true;
             layout.childForceExpandHeight = false;
             XiaoshanScoreRow.GetComponent<LayoutElement>().minHeight = 44f;
-            if (HepaiWayPanel != null) {
+            if (XiaoshanBaotouToggle != null) {
+                // 放在萧山开关行之前（积分/封顶在开关上方）。
+                XiaoshanScoreRow.transform.SetSiblingIndex(XiaoshanBaotouToggle.transform.GetSiblingIndex());
+            } else if (HepaiWayPanel != null) {
                 XiaoshanScoreRow.transform.SetSiblingIndex(HepaiWayPanel.transform.GetSiblingIndex() + 1);
             }
         }

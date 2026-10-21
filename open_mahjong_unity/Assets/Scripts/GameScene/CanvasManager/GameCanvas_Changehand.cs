@@ -176,6 +176,11 @@ public partial class GameCanvas{
             // 这样松手复位/换位时仍会保留这张摸牌及其独立摸牌区位置。
             handCardDragController?.RegisterIncomingDrawDuringActivePress(tileCard, targetPosition.x);
             yield return StartCoroutine(AnimateGetCard(cardRect, targetPosition));
+            // 萧山翻财：摸牌并入排序（白板按财神本牌落位、财神实体排最右），
+            // 保留摸切语义标记，出牌判定不受影响。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+                yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
+            }
             if (NormalGameStateManager.Instance.IsSelfActionRequired) {
                 RefreshHandTileSelectability();
             }
@@ -189,7 +194,12 @@ public partial class GameCanvas{
             tileCard.SetTile(tileId, true);
             int handCardCount = handCardsContainer.childCount - 1;
             tileCard.handSortIndex = handCardCount;
-            LayoutHandCardsFromCurrentOrder();
+            // 萧山翻财：同步重排（无独立摸牌动画路径，直接布局）。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+                yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
+            } else {
+                LayoutHandCardsFromCurrentOrder();
+            }
             GameRecordManager.Instance?.ReapplySelf2DHandChongOverlay();
             if (NormalGameStateManager.Instance.IsSelfActionRequired) {
                 RefreshHandTileSelectability();
@@ -215,6 +225,10 @@ public partial class GameCanvas{
                     + childRect.rect.width * (1f - childRect.pivot.x));
             }
             cardRect.anchoredPosition = GetHandCardPosition(cardRect, rightEdge);
+            // 萧山翻财：杠后补牌同样并入排序，白板/财神落位一致。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+                yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
+            }
             GameRecordManager.Instance?.ReapplySelf2DHandChongOverlay();
         }
 
