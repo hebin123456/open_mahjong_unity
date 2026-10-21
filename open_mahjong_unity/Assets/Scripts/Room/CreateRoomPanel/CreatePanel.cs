@@ -436,6 +436,8 @@ public partial class CreatePanel : MonoBehaviour {
         if (_ruleState == "hongkong") SubRuleDescriptionText.text = HongKong_Create_RoomConfig.SourceDescription(GetSelectedSubRule(),BuildDetailedConfigValues("hongkong"));
         SubRuleDescriptionText.ForceMeshUpdate();
         ReflowRoomPresentation();
+        // 文本变化后滚动位置回到顶部
+        if (ruleDescribeScroll != null) ruleDescribeScroll.verticalNormalizedPosition = 1f;
     }
 
     private void InitSubRuleDropdown() {

@@ -9,6 +9,10 @@ using UnityEngine;
 using System.Runtime.InteropServices;
 using UnityEngine.UI;
 
+/// <summary>挂了此标记的 Canvas 不参与 letterbox 的 Overlay→Camera 模式转换，
+/// 始终保持 Screen Space - Overlay 渲染在所有相机输出之上（如战绩浮层等全屏模态）。</summary>
+public sealed class LetterboxIgnoreCanvas : MonoBehaviour { }
+
 /// <summary>
 /// 固定宽高比窗口
 /// </summary>
@@ -295,6 +299,7 @@ public class FixedAspectRatio : MonoBehaviour {
         for (int i = 0; i < canvases.Length; i++) {
             Canvas canvas = canvases[i];
             if (canvas == null || canvas == blackBarCanvas) continue;
+            if (canvas.GetComponent<LetterboxIgnoreCanvas>() != null) continue;
             if (canvas.renderMode != RenderMode.ScreenSpaceOverlay) continue;
 
             if (!overlayCanvasStates.ContainsKey(canvas)) {

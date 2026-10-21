@@ -43,10 +43,12 @@ public class LocalBattleRecordPanel : MonoBehaviour {
             DontDestroyOnLoad(go);
             var canvas = go.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            // 对局界面（GameCanvas 等）在 BoardUI/PageUI 层，Default 层的 sortingOrder 再高也会被盖住，
-            // 战绩浮层须挂在最高的 OverlayUI 层才能浮在所有界面上。
+            // 战绩浮层必须压过一切界面：挂在最高的 OverlayUI 层 + 全场最高 sortingOrder，
+            // 并豁免 FixedAspectRatio 的 Overlay→Camera 转换（转成相机渲染后会被
+            // 更高深度相机的内容盖住，表现为很多界面里打不开/被挡）。
             canvas.sortingLayerID = SortingLayer.NameToID("OverlayUI");
-            canvas.sortingOrder = 900;
+            canvas.sortingOrder = 30000;
+            go.AddComponent<LetterboxIgnoreCanvas>();
             var scaler = go.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, ReferenceHeight);
@@ -68,6 +70,11 @@ public class LocalBattleRecordPanel : MonoBehaviour {
     public static void Show() {
         if (Instance == null) Create();
         if (Instance == null) return;
+        // 每次打开都重申置顶状态，防止历史版本转换/其他脚本改过渲染模式后残留。
+        var canvas = Instance.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingLayerID = SortingLayer.NameToID("OverlayUI");
+        canvas.sortingOrder = 30000;
         Instance.gameObject.SetActive(true);
         Instance.clearArmed = false;
         try {

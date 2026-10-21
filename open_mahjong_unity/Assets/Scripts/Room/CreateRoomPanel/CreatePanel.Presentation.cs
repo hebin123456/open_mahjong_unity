@@ -140,7 +140,11 @@ public partial class CreatePanel {
         RoomFill(scroll.viewport, 0, 0, 12, 0);
         var content = RoomContent; content.anchorMin = new Vector2(0, 1); content.anchorMax = Vector2.one; content.pivot = new Vector2(.5f, 1); content.offsetMin = new Vector2(0, content.offsetMin.y); content.offsetMax = new Vector2(0, content.offsetMax.y);
         float textWidth = width - margin - rightMargin - 12 - 52;
-        RoomHeight((RectTransform)SubRuleDescriptionText.transform.parent, SubRuleDescriptionText.GetPreferredValues(Mathf.Max(200, textWidth), 0).y + 32);
+        EnsureRuleDescribeScroll();
+        float describeHeight = SubRuleDescriptionText.GetPreferredValues(Mathf.Max(200, textWidth), 0).y + 32;
+        RoomHeight(ruleDescribeRow ? ruleDescribeRow : (RectTransform)SubRuleDescriptionText.transform.parent, Mathf.Min(describeHeight, RuleDescribeMaxHeight));
+        // 未超限时禁用内部滚动，拖拽/滚轮自然穿透给外层页面滚动
+        if (ruleDescribeScroll != null) ruleDescribeScroll.enabled = describeHeight > RuleDescribeMaxHeight + 1f;
         var footer = (RectTransform)transform.Find("FooterPanel"); RoomFill(footer); footer.anchorMax = new Vector2(1, 0); footer.offsetMax = new Vector2(0, 116);
         RoomFooterButton(createButton, 36); RoomFooterButton(closeButton, 406);
         if (restoreDefaultsButton) {
@@ -171,5 +175,56 @@ public partial class CreatePanel {
         if (!layout && !Application.isPlaying) layout = rect.gameObject.AddComponent<LayoutElement>();
 #endif
         layout.minHeight = 0; layout.preferredHeight = height; layout.flexibleHeight = 0; return layout;
+    }
+
+    /// <summary>规则描述行高上限：超出后行内滚动，不再随文本无限拉大。</summary>
+    private const float RuleDescribeMaxHeight = 460f;
+    private ScrollRect ruleDescribeScroll;
+    private RectTransform ruleDescribeRow;
+
+    /// <summary>
+    /// 把规则描述行改造成内部滚动容器：RuleDescribePanel 挂 ScrollRect，
+    /// 文本移入透明 Viewport 作为内容，高度仍由其自带 ContentSizeFitter 撑开。
+    /// 行高由 Reflow 按 min(文本高+32, 上限) 控制，超出部分滚轮/拖拽查看。
+    /// </summary>
+    private void EnsureRuleDescribeScroll() {
+        if (SubRuleDescriptionText == null) return;
+        RectTransform textRect = SubRuleDescriptionText.rectTransform;
+        if (ruleDescribeScroll != null && ruleDescribeScroll.content == textRect) return;
+        // 行 = 文本向上找到滚动 Content 的直接子级（历史改造后文本可能已位于视口内）
+        ruleDescribeRow = FindRuleDescribeRow(textRect);
+        ruleDescribeScroll = ruleDescribeRow.GetComponent<ScrollRect>();
+        if (ruleDescribeScroll == null) ruleDescribeScroll = ruleDescribeRow.gameObject.AddComponent<ScrollRect>();
+        RectTransform viewport = ruleDescribeRow.Find("DescribeViewport") as RectTransform;
+        if (viewport == null) {
+            viewport = new GameObject("DescribeViewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D)).GetComponent<RectTransform>();
+            viewport.SetParent(ruleDescribeRow, false);
+            // 全透明但 raycastTarget 开启：承载拖拽与滚轮命中
+            viewport.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+            RoomFill(viewport);
+        }
+        if (textRect.parent != viewport) textRect.SetParent(viewport, false);
+        // 文本作为滚动内容：顶对齐、左右各内缩 26，高度由自带 ContentSizeFitter 按全文 preferred 撑开
+        textRect.anchorMin = new Vector2(0f, 1f);
+        textRect.anchorMax = new Vector2(1f, 1f);
+        textRect.pivot = new Vector2(0.5f, 1f);
+        textRect.anchoredPosition = new Vector2(0f, -16f);
+        textRect.sizeDelta = new Vector2(-52f, 0f);
+        ruleDescribeScroll.viewport = viewport;
+        ruleDescribeScroll.content = textRect;
+        ruleDescribeScroll.horizontal = false;
+        ruleDescribeScroll.vertical = true;
+        ruleDescribeScroll.movementType = ScrollRect.MovementType.Clamped;
+        ruleDescribeScroll.scrollSensitivity = 36f;
+        ruleDescribeScroll.verticalScrollbar = null;
+        ruleDescribeScroll.verticalNormalizedPosition = 1f;
+    }
+
+    private RectTransform FindRuleDescribeRow(Transform start) {
+        Transform content = RoomContent;
+        for (Transform t = start; t != null && t.parent != null; t = t.parent) {
+            if (t.parent == content) return (RectTransform)t;
+        }
+        return (RectTransform)start.parent;
     }
 }
