@@ -7,6 +7,10 @@ using UnityEngine;
 
 public partial class GameCanvas{
 
+    // 萧山翻财：每局只在第一次摸牌后重排一次（白板按财神本牌落位），
+    // 之后摸牌保持「新张飞入摸牌位」的自然动画，不再整手重排。
+    private bool xiaoshanFirstDrawRearrangeDone;
+
     // 手牌处理
     public void ChangeHandCards(string ChangeType,int tileId,int[] TilesList,int? cut_tile_index){
         // 空闲时立即接受自由摸牌；视觉收拢在后台追随最新布局，不积压后续摸牌。
@@ -105,6 +109,7 @@ public partial class GameCanvas{
             if (TilesList == null){
                 yield break;
             }
+            xiaoshanFirstDrawRearrangeDone = false; // 新局重新计第一次摸牌
             for (int i = 0; i < TilesList.Length; i++){
                 GameObject cardObj = Instantiate(tileCardPrefab, handCardsContainer);
                 TileCard tileCard = cardObj.GetComponent<TileCard>();
@@ -176,9 +181,10 @@ public partial class GameCanvas{
             // 这样松手复位/换位时仍会保留这张摸牌及其独立摸牌区位置。
             handCardDragController?.RegisterIncomingDrawDuringActivePress(tileCard, targetPosition.x);
             yield return StartCoroutine(AnimateGetCard(cardRect, targetPosition));
-            // 萧山翻财：摸牌并入排序（白板按财神本牌落位、财神实体排最右），
-            // 保留摸切语义标记，出牌判定不受影响。
-            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+            // 萧山翻财：仅本局第一次摸牌后重排一次（白板按财神本牌落位、财神实体排最右），
+            // 保留摸切语义标记；后续摸牌不再整手重排，保持摸牌动画自然。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback() && !xiaoshanFirstDrawRearrangeDone) {
+                xiaoshanFirstDrawRearrangeDone = true;
                 yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
             }
             if (NormalGameStateManager.Instance.IsSelfActionRequired) {
@@ -194,8 +200,9 @@ public partial class GameCanvas{
             tileCard.SetTile(tileId, true);
             int handCardCount = handCardsContainer.childCount - 1;
             tileCard.handSortIndex = handCardCount;
-            // 萧山翻财：同步重排（无独立摸牌动画路径，直接布局）。
-            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+            // 萧山翻财：同步重排（无独立摸牌动画路径，直接布局），同样仅限本局第一次。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback() && !xiaoshanFirstDrawRearrangeDone) {
+                xiaoshanFirstDrawRearrangeDone = true;
                 yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
             } else {
                 LayoutHandCardsFromCurrentOrder();
@@ -225,8 +232,9 @@ public partial class GameCanvas{
                     + childRect.rect.width * (1f - childRect.pivot.x));
             }
             cardRect.anchoredPosition = GetHandCardPosition(cardRect, rightEdge);
-            // 萧山翻财：杠后补牌同样并入排序，白板/财神落位一致。
-            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback()) {
+            // 萧山翻财：杠后补牌同样并入排序，白板/财神落位一致；仅限本局第一次摸牌。
+            if (TileIdOrder.XiaoshanJokerActive && !IsHandRecordPlayback() && !xiaoshanFirstDrawRearrangeDone) {
+                xiaoshanFirstDrawRearrangeDone = true;
                 yield return StartCoroutine(RearrangeHandCardsWithAnimation(clearMoqieMark: false));
             }
             GameRecordManager.Instance?.ReapplySelf2DHandChongOverlay();
