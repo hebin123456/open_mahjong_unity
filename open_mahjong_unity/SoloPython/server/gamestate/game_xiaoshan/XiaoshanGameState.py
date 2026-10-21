@@ -24,7 +24,7 @@ from ...game_calculation.hangzhou.rules import JOKER, WinContext
 from ...game_calculation.xiaoshan import rules as xs
 from .flow import XiaoshanHandFlow
 
-_CLAIM_ACTIONS = ("chi_left", "chi_mid", "chi_right", "peng")
+_CLAIM_ACTIONS = ("chi_left", "chi_mid", "chi_right", "peng", "gang")
 
 
 class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
@@ -49,8 +49,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         self.baotou_required = bool(self.detailed_config.get("baotou_required", False))
         # 「积分小于 0 继续」：开启后输家可扣成负分且不触发清零终局，打满局数才收场。
         self.allow_negative = bool(self.detailed_config.get("allow_negative", False))
-        # 「允许三摊承包」：开启时对同一家累计吃碰满三摊触发承包/反承包；
-        # 关闭后对同一家最多吃碰 2 摊（第三次吃碰该家不可用，杠不受限）。
+        # 「允许三摊承包」：开启时对同一家累计吃碰杠满三摊触发承包/反承包；
+        # 关闭后对同一家最多吃碰杠 2 摊（第三次鸣牌该家不可用），且不触发承包结算。
         self.allow_claim = bool(self.detailed_config.get("claim_allowed", True))
         self.claim_from = [[0] * 4 for _ in range(4)]
 
@@ -202,7 +202,8 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
                                 tian_hu=tian_hu, di_hu=di_hu,
                                 current_scores=[q.score for q in self.player_list],
                                 no_debt=bool(self.starting_score) and not self.allow_negative,
-                                extra_by_payer=extra_by_payer or None)
+                                extra_by_payer=extra_by_payer or None,
+                                allow_claim=self.allow_claim)
         changes = list(payment.changes)
         entry = dict(winner=winner, source=source, tile=tile if source == "self_draw" else 0,
                      discarder=None, kong_player=None, points=payment.base_points,

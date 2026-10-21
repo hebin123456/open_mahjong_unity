@@ -30,7 +30,7 @@ public partial class CreatePanel {
 
         XiaoshanClaimToggle = Instantiate(TacticalCallToggle, TacticalCallToggle.transform.parent);
         XiaoshanClaimToggle.name = "XiaoshanClaim";
-        // 「允许三摊承包」默认开启；关闭时对同一家最多吃碰 2 摊。
+        // 「允许三摊承包」默认开启；关闭时对同一家最多吃碰杠 2 摊。
         XiaoshanClaimToggle.SetIsOnWithoutNotify(true);
         XiaoshanClaimToggle.group = null;
         XiaoshanClaimToggle.onValueChanged = new Toggle.ToggleEvent();
@@ -42,7 +42,7 @@ public partial class CreatePanel {
         BindXiaoshanHelp(XiaoshanNegativeToggle,
             "积分小于 0 继续：开启后输家可扣成负分且不触发清零终局，打满局数才收场；关闭为清零制，任一家 0 分整场结束。");
         BindXiaoshanHelp(XiaoshanClaimToggle,
-            "允许三摊承包：开启时对同一家累计吃碰满三摊触发承包/反承包；关闭后对同一家最多吃碰 2 摊，不触发承包（杠不属于摊，不受限）。");
+            "允许三摊承包：开启时对同一家累计吃碰杠满三摊触发承包/反承包；关闭后对同一家最多吃碰杠 2 摊，第三次鸣牌该家不可用（碰/杠/吃都不给）。");
     }
 
     private void BindXiaoshanHelp(Component control, string message) {

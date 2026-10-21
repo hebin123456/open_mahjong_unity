@@ -438,9 +438,12 @@ def _validate_seats(winner, dealer):
 def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
                base_score=BASE_SCORE, total_cap=DEFAULT_TOTAL_CAP,
                dealer_cap=DEFAULT_DEALER_CAP, tian_hu=False, di_hu=False,
-               current_scores=None, no_debt=False, extra_by_payer=None):
+               current_scores=None, no_debt=False, extra_by_payer=None,
+               allow_claim=True):
     """萧山结算：连庄倍数 + 承包关系；天胡/地胡按封顶顶格结算（不再相乘）。
 
+    ``allow_claim``（DIY「允许三摊承包」）：关闭时不触发承包/反承包转移，
+    按常规各家支付；鸣牌本身不受该开关影响。
     ``no_debt``（清零制，持有开局底分时启用）：输家最多输光手上的分，
     付不起的部分不追讨，分值不存在负数。
     ``extra_by_payer``：按座位的附加支付条目（如「杠后和牌」「飘」各 +1 番），
@@ -459,12 +462,13 @@ def settle_win(score, winner, dealer, dealer_streak, claim_from=None, *,
               for seat in range(4) if seat != winner}
     total = sum(normal.values())
     transfers = []
-    for provider in range(4):
-        if provider != winner and claim_from[winner][provider] >= CLAIM_THRESHOLD:
-            transfers.append(Transfer(provider, winner, total, "承包"))
-    for claimer in range(4):
-        if claimer != winner and claim_from[claimer][winner] >= CLAIM_THRESHOLD:
-            transfers.append(Transfer(claimer, winner, 2 * total, "反承包"))
+    if allow_claim:
+        for provider in range(4):
+            if provider != winner and claim_from[winner][provider] >= CLAIM_THRESHOLD:
+                transfers.append(Transfer(provider, winner, total, "承包"))
+        for claimer in range(4):
+            if claimer != winner and claim_from[claimer][winner] >= CLAIM_THRESHOLD:
+                transfers.append(Transfer(claimer, winner, 2 * total, "反承包"))
     if not transfers:
         transfers = [Transfer(seat, winner, amount, "自摸")
                      for seat, amount in normal.items()]

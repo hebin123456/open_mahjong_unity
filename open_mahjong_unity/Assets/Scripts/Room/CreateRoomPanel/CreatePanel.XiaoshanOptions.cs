@@ -31,7 +31,9 @@ public partial class CreatePanel {
             layout.spacing = 12f;
             layout.childControlWidth = layout.childControlHeight = true;
             layout.childForceExpandWidth = true;
-            layout.childForceExpandHeight = false;
+            // 子面板克隆自 HepaiConfig，本体没有 LayoutElement 高度字段；
+            // 若不强制扩展，会在 childControlHeight 行内被算成 0 高而不可见。
+            layout.childForceExpandHeight = true;
             XiaoshanScoreRow.GetComponent<LayoutElement>().minHeight = 64f;
             if (gridRow != null) {
                 // 插到开关网格行之后（开局积分/倍率封顶显示在萧山开关排的下一行）。
@@ -48,6 +50,10 @@ public partial class CreatePanel {
             element.minWidth = 100f;
             element.preferredWidth = 180f;
             element.flexibleWidth = 1f;
+            // HepaiConfig 模板本体 64 高但无 LayoutElement；克隆后高度字段为空，
+            // 在 childControlHeight 的行内会被压成 0 高导致整行看似不存在，必须显式补上。
+            element.minHeight = 64f;
+            element.preferredHeight = 64f;
         }
         XiaoshanStartingScoreDropdown = XiaoshanStartingScorePanel != null
             ? XiaoshanStartingScorePanel.GetComponentInChildren<TMP_Dropdown>(true) : null;
