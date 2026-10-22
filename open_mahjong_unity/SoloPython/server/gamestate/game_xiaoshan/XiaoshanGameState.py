@@ -50,7 +50,7 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
         # 「积分小于 0 继续」：开启后输家可扣成负分且不触发清零终局，打满局数才收场。
         self.allow_negative = bool(self.detailed_config.get("allow_negative", False))
         # 「允许三摊承包」：开启时对同一家累计吃碰杠满三摊触发承包/反承包；
-        # 关闭后对同一家最多吃碰杠 2 摊（第三次鸣牌该家不可用），且不触发承包结算。
+        # 关闭时只关闭承包/反承包结算，吃碰杠本身照常可用。
         self.allow_claim = bool(self.detailed_config.get("claim_allowed", True))
         self.claim_from = [[0] * 4 for _ in range(4)]
 

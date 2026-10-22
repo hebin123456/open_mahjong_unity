@@ -63,18 +63,14 @@ def claim_actions(state, actor, tile):
         return actions
     joker = state.joker_indicator
     logical = natural(tile, joker)
-    # DIY「允许三摊承包」关闭：对同一家累计吃碰杠满 2 摊后，第三次鸣牌该家
-    # 整体不可用（碰/杠/吃都不给，避免形成三摊承包局面）；计数按牌手身份跨局累计。
-    claims = None if getattr(state, "allow_claim", True) else state._seat_claims()
     for index, p in enumerate(state.player_list):
         if index == actor or state.is_cai_locked(index):
             continue
-        restricted = claims is not None and claims[index][actor] >= xs.CLAIM_THRESHOLD - 1
-        if not restricted and physical_for(p.hand_tiles, [logical] * 2, joker):
+        if physical_for(p.hand_tiles, [logical] * 2, joker):
             actions[index].append("peng")
-        if not restricted and len(state.tiles_list) >= 22 and physical_for(p.hand_tiles, [logical] * 3, joker):
+        if len(state.tiles_list) >= 22 and physical_for(p.hand_tiles, [logical] * 3, joker):
             actions[index].append("gang")
-        if not restricted and index == (actor + 1) % 4 and logical in NUMBERS:
+        if index == (actor + 1) % 4 and logical in NUMBERS:
             for action in CHOWS:
                 needed = [logical + n for n in CHOW_OFFSETS[action]]
                 if (all(t in NUMBERS and t // 10 == logical // 10 for t in needed)

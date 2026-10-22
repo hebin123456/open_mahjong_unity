@@ -6,7 +6,7 @@ using UnityEngine;
 
 /// <summary>
 /// 单机版启动引导：拉起内嵌的本地杭州麻将服务（127.0.0.1:18763）。
-/// Android 走 Chaquopy；Windows 在 exe 同级 SoloRuntime/ 里用随包分发的嵌入式
+/// Android 走 Chaquopy；Windows/Linux 在可执行文件同级 SoloRuntime/ 里用随包分发的
 /// Python 以子进程方式运行同一份 SoloPython 服务端。编辑器为空操作，仍走原有联网流程。
 /// </summary>
 public static class SoloServerBootstrap {
@@ -54,7 +54,7 @@ public static class SoloServerBootstrap {
             return "ERR(csharp): " + e.Message;
         }
     }
-#elif UNITY_STANDALONE_WIN && !UNITY_EDITOR
+#elif (UNITY_STANDALONE_WIN || UNITY_STANDALONE_LINUX) && !UNITY_EDITOR
     private static bool started;
     private static System.Diagnostics.Process _proc;
     private static readonly object _logLock = new object();
@@ -63,9 +63,17 @@ public static class SoloServerBootstrap {
     /// <summary>最近一次启动结果，以 "OK" 开头表示本地服务已就绪；否则为 "ERR: 原因"。</summary>
     public static string Status { get; private set; } = "";
 
-    /// <summary>随包的运行时目录：exe 同级的 SoloRuntime/python 与 SoloRuntime/SoloPython。</summary>
+    /// <summary>随包的运行时目录：可执行文件同级的 SoloRuntime/python 与 SoloRuntime/SoloPython。</summary>
     private static string RuntimeRoot =>
         Path.Combine(Path.GetDirectoryName(Application.dataPath) ?? ".", "SoloRuntime");
+
+    /// <summary>各平台随包 Python 解释器在 SoloRuntime/python 下的相对路径。</summary>
+    private static string PythonExecutablePath =>
+#if UNITY_STANDALONE_WIN
+        Path.Combine(RuntimeRoot, "python", "python.exe");
+#else
+        Path.Combine(RuntimeRoot, "python", "bin", "python3");
+#endif
 
     /// <summary>
     /// 幂等确保本地 Python 服务已启动：拉起嵌入式 Python 子进程，阻塞至端口就绪。
@@ -75,7 +83,7 @@ public static class SoloServerBootstrap {
         if (started) return;
         try {
             string root = RuntimeRoot;
-            string exe = Path.Combine(root, "python", "python.exe");
+            string exe = PythonExecutablePath;
             string script = Path.Combine(root, "SoloPython", "solo_server.py");
             if (!File.Exists(exe) || !File.Exists(script)) {
                 Status = "ERR: 缺少本地运行时（" + root + "）";
@@ -146,7 +154,7 @@ public static class SoloServerBootstrap {
         return false;
     }
 
-    /// <summary>退出时回收子进程，避免残留 python.exe 占住端口。</summary>
+    /// <summary>退出时回收子进程，避免残留 Python 进程占住端口。</summary>
     private static void Stop() {
         try {
             if (_proc != null && !_proc.HasExited) _proc.Kill();

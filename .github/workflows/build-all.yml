@@ -1,4 +1,4 @@
-name: Build All Platforms (Android + Windows + iOS)
+name: Build All Platforms (Android + Windows + Linux + iOS)
 
 on:
   workflow_dispatch:
@@ -191,6 +191,84 @@ jobs:
           name: windows-package
           path: ${{ github.workspace }}/Windows.zip
 
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space (Unity builds need room)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
+      - name: Fetch portable Python runtime
+        run: |
+          URL="https://github.com/astral-sh/python-build-standalone/releases/download/20240726/cpython-3.10.14%2B20240726-x86_64-unknown-linux-gnu-install_only.tar.gz"
+          DEST="open_mahjong_unity/.cache/solo-python/cpython-3.10.14+20240726-x86_64-unknown-linux-gnu-install_only"
+          mkdir -p /tmp/pylinux "$DEST"
+          curl -fsSL "$URL" -o /tmp/pylinux/python.tar.gz
+          tar -xzf /tmp/pylinux/python.tar.gz -C /tmp/pylinux
+          cp -a /tmp/pylinux/python/. "$DEST/"
+          chmod +x "$DEST/bin/"*
+          test -x "$DEST/bin/python3"
+          "$DEST/bin/python3" -c "import sys; print('portable python', sys.version)"
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: open_mahjong_unity/Library
+          key: Library-Linux-${{ hashFiles('open_mahjong_unity/Packages/manifest.json') }}
+          restore-keys: |
+            Library-Linux-
+            Library-
+
+      - name: Build Linux
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: open_mahjong_unity
+          unityVersion: ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
+          targetPlatform: StandaloneLinux64
+          allowDirtyBuild: true
+          buildName: Linux
+          versioning: None
+          buildsPath: build
+
+      - name: Package Linux build
+        run: |
+          find build -maxdepth 3 -type f | head -n 60
+          # Unity Linux 产物根目录下的启动器为 <buildName>.x86_64，其所在目录即完整产物目录
+          EXE="$(find build -maxdepth 2 -type f -name '*.x86_64' \
+                 -not -ipath '*/SoloRuntime/*' | sort | head -n 1)"
+          if [ -z "$EXE" ]; then
+            echo "::error::No .x86_64 launcher found under build/"
+            exit 1
+          fi
+          DIR="$(dirname "$EXE")"
+          echo "Packaging $DIR"
+          chmod +x "$EXE"
+          if [ -d "$DIR/SoloRuntime/python/bin" ]; then
+            chmod +x "$DIR/SoloRuntime/python/bin/"*
+          fi
+          # 不加 -y：符号链接按实体文件存储，避免部分解压工具丢失链接导致 python3 不可用
+          (cd "$DIR" && zip -r "$GITHUB_WORKSPACE/Linux.zip" .)
+
+      - name: Upload Linux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-package
+          path: ${{ github.workspace }}/Linux.zip
+
   export-xcode:
     name: iOS - Unity -> Xcode Project
     runs-on: ubuntu-latest
@@ -301,9 +379,9 @@ jobs:
 
   publish:
     name: Publish Release
-    needs: [ build-android, build-windows, make-ipa ]
-    # Android + Windows 成功即发布；iOS IPA 失败（含被取消）时跳过 IPA 继续发
-    if: ${{ !cancelled() && needs.build-android.result == 'success' && needs.build-windows.result == 'success' }}
+    needs: [ build-android, build-windows, build-linux, make-ipa ]
+    # Android + Windows + Linux 成功即发布；iOS IPA 失败（含被取消）时跳过 IPA 继续发
+    if: ${{ !cancelled() && needs.build-android.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -317,6 +395,12 @@ jobs:
         with:
           name: windows-package
           path: artifacts/windows-package
+
+      - name: Download Linux package
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-package
+          path: artifacts/linux-package
 
       - name: Download unsigned IPA
         if: ${{ needs.make-ipa.result == 'success' }}
@@ -342,5 +426,6 @@ jobs:
 
           - Android.apk：安卓安装包
           - Windows.zip：Windows 解压运行
+          - Linux.zip：Linux 解压后 chmod +x Linux.x86_64 运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
             $FILES
