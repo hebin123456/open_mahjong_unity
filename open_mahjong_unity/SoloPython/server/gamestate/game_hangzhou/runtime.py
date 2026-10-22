@@ -213,6 +213,8 @@ class Runtime:
         initialize_round 恒定让 0 号位坐庄（拿第 14 张、首个行动），故用随机轮转
         把随机一家转到 0 号位，而不是直接改庄家下标；后续局仍由 next_dealer 胜者
         轮庄。轮转基于主种子，同一对局可复现，牌谱与承诺不受影响。
+        轮转发生在首个 game_start 下发之前，客户端按 user_id 重新匹配自身座位，
+        与局间轮庄走的是同一套映射。
         """
         rotation = random.Random(self.master_seed).randrange(len(self.player_list))
         if not rotation:

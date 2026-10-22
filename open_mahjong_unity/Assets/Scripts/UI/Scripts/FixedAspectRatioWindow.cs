@@ -76,17 +76,19 @@ public class FixedAspectRatio : MonoBehaviour {
     private readonly Dictionary<Camera, float> cameraBaseFov = new Dictionary<Camera, float>();
 
     /// <summary>
-    /// letterbox 目标比例：屏幕比 16:9 更宽（超宽直板/折叠外屏/桌面超宽窗口）时 letterbox 到 16:9；
-    /// 更方的屏幕（折叠屏展开态约 1:1、平板 4:3、桌面 16:10/4:3 显示器）目标比例直接跟随屏幕——
-    /// 视口铺满全屏无黑边，变窄的水平视野由 <see cref="ApplyCameraFov"/> 放大竖直 FOV 补偿，
-    /// 保持与 16:9 一致的横向构图。桌面端与移动端同规则：此前桌面更方窗口取消 letterbox 后
-    /// 未做 FOV 补偿，牌桌横向被裁切放大，左家吃碰区被推到左下被 2D 手牌遮挡。
+    /// 移动端 letterbox 目标比例：夹在 [4:3, 16:9] 内跟随屏幕。
+    /// 大折叠/平板展开态接近 1:1（1.1~1.3），若仍固定 16:9 画面只占屏幕约 2/3 高；
+    /// 收紧到 4:3 后视口利用率约 90%，16:9~20:9 主流直板机 clamp 后仍为 16:9，不受影响。
     /// </summary>
     private float LetterboxTargetAspect {
         get {
+#if UNITY_ANDROID || UNITY_IOS
             float screen = Screen.width / (float)Screen.height;
             if (screen < 1f) screen = 1f / screen;
-            return Mathf.Min(screen, targetAspectRatio);
+            return Mathf.Clamp(screen, 4f / 3f, 16f / 9f);
+#else
+            return targetAspectRatio;
+#endif
         }
     }
 
@@ -242,15 +244,13 @@ public class FixedAspectRatio : MonoBehaviour {
     }
 
     private void ApplyCameraViewport() {
+        bool shouldLetterbox = ShouldLetterbox();
         float aspect = Screen.width / (float)Screen.height;
 #if UNITY_ANDROID || UNITY_IOS
         if (aspect < 1f) aspect = 1f / aspect;
 #endif
         float targetAspect = LetterboxTargetAspect;
-        // 目标比例等于屏幕比例（近方形屏跟随屏幕）时视口已是全屏：
-        // 不切画布渲染模式、不画黑条，仅按需做 FOV 补偿。
-        bool croppedViewport = ShouldLetterbox() && targetAspect < aspect - 0.0005f;
-        Rect targetRect = croppedViewport ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
+        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
 
         currentCameraRect = targetRect;
         Camera[] cameras = GetTargetCameras();
@@ -259,7 +259,7 @@ public class FixedAspectRatio : MonoBehaviour {
         }
 
         ApplyCameraFov(targetAspect, cameras);
-        ApplyCanvasViewport(croppedViewport);
+        ApplyCanvasViewport(shouldLetterbox);
         ApplyBlackBars(currentCameraRect);
     }
 

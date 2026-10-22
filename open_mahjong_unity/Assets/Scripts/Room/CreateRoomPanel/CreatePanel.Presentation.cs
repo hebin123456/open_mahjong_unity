@@ -178,7 +178,7 @@ public partial class CreatePanel {
     }
 
     /// <summary>规则描述行高上限：超出后行内滚动，不再随文本无限拉大。</summary>
-    private const float RuleDescribeMaxHeight = 340f;
+    private const float RuleDescribeMaxHeight = 170f;
     private ScrollRect ruleDescribeScroll;
     private RectTransform ruleDescribeRow;
 
