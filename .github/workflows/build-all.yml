@@ -247,11 +247,10 @@ jobs:
       - name: Package Linux build
         run: |
           find build -maxdepth 3 -type f | head -n 60
-          # Unity Linux 产物根目录下的启动器为 <buildName>.x86_64，其所在目录即完整产物目录
-          EXE="$(find build -maxdepth 2 -type f -name '*.x86_64' \
-                 -not -ipath '*/SoloRuntime/*' | sort | head -n 1)"
+          # Unity Linux 产物根目录下的启动器名即 buildName（Linux，无扩展名），其所在目录即完整产物目录
+          EXE="$(find build -maxdepth 2 -type f -name 'Linux' | sort | head -n 1)"
           if [ -z "$EXE" ]; then
-            echo "::error::No .x86_64 launcher found under build/"
+            echo "::error::No Linux launcher found under build/"
             exit 1
           fi
           DIR="$(dirname "$EXE")"
@@ -426,6 +425,6 @@ jobs:
 
           - Android.apk：安卓安装包
           - Windows.zip：Windows 解压运行
-          - Linux.zip：Linux 解压后 chmod +x Linux.x86_64 运行
+          - Linux.zip：Linux 解压后 chmod +x Linux && ./Linux 运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
             $FILES
