@@ -255,10 +255,12 @@ jobs:
           fi
           DIR="$(dirname "$EXE")"
           echo "Packaging $DIR"
-          chmod +x "$EXE"
+          # Unity 容器以 uid 1000 写入产物，runner 用户可能无权 chmod；产物本身已带执行位
+          chmod +x "$EXE" 2>/dev/null || true
           if [ -d "$DIR/SoloRuntime/python/bin" ]; then
-            chmod +x "$DIR/SoloRuntime/python/bin/"*
+            chmod +x "$DIR/SoloRuntime/python/bin/"* 2>/dev/null || true
           fi
+          test -x "$EXE" || { echo "::error::Linux launcher is not executable"; exit 1; }
           # 不加 -y：符号链接按实体文件存储，避免部分解压工具丢失链接导致 python3 不可用
           (cd "$DIR" && zip -r "$GITHUB_WORKSPACE/Linux.zip" .)
 
