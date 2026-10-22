@@ -5,9 +5,18 @@ using UnityEngine;
 public partial class GameCanvas {
     private Vector3 defaultHandCardsContainerScale;
     private bool hasCapturedDefaultHandCardsContainerScale;
+    private Vector2 defaultHandCardsContainerPosition;
+    private bool hasCapturedDefaultHandCardsContainerPosition;
+
+    // 左手家副露列沿「FrontDirection」朝屏幕下方生长，实测右缘约在画布 316 单位处，
+    // 手牌从 269 起排会压住它；这里给手牌留出左侧安全带。
+    private const float HandLeftGuardX = 350f;
+    // 手牌右侧至少留出的边距，避免最右一张贴边裁切。
+    private const float HandRightMargin = 24f;
 
     /// <summary>
     /// 根据规则切换自家手牌区尺寸。缩放整个容器可让发牌、摸牌、补杠与拖拽继续共用原有局部坐标。
+    /// 同时把手牌整体放到左手副露列右侧，并在窄屏（近方形/4:3）时收窄，避免被裁切。
     /// </summary>
     public void ConfigureHandLayoutForRule(string roomRule, string subRule = null) {
         if (handCardsContainer == null) {
@@ -17,14 +26,50 @@ public partial class GameCanvas {
             defaultHandCardsContainerScale = handCardsContainer.localScale;
             hasCapturedDefaultHandCardsContainerScale = true;
         }
+        if (!hasCapturedDefaultHandCardsContainerPosition) {
+            RectTransform captured = handCardsContainer as RectTransform;
+            defaultHandCardsContainerPosition = captured != null
+                ? captured.anchoredPosition
+                : new Vector2(HandLeftGuardX, 0f);
+            hasCapturedDefaultHandCardsContainerPosition = true;
+        }
 
         HandStructure handStructure = HandStructures.Resolve(roomRule, subRule);
-        float scale = (float)HandStructures.ThirteenTile.DisplayWidthUnits
+        float ruleScale = (float)HandStructures.ThirteenTile.DisplayWidthUnits
             / handStructure.DisplayWidthUnits;
+        float fitScale = ResolveHandFitScale(handStructure, ruleScale);
+
         handCardsContainer.localScale = new Vector3(
-            defaultHandCardsContainerScale.x * scale,
-            defaultHandCardsContainerScale.y * scale,
+            defaultHandCardsContainerScale.x * ruleScale * fitScale,
+            defaultHandCardsContainerScale.y * ruleScale * fitScale,
             defaultHandCardsContainerScale.z);
+
+        RectTransform containerRect = handCardsContainer as RectTransform;
+        if (containerRect != null) {
+            containerRect.anchoredPosition = new Vector2(
+                Mathf.Max(defaultHandCardsContainerPosition.x, HandLeftGuardX),
+                defaultHandCardsContainerPosition.y);
+        }
+    }
+
+    /// <summary>
+    /// 手牌整行（含摸牌位）超出可用宽度时按比例收窄，可用宽度 = 画布宽 - 左侧安全带 - 右侧边距。
+    /// </summary>
+    private float ResolveHandFitScale(HandStructure handStructure, float ruleScale) {
+        if (tileCardWidth <= 0f) {
+            return 1f;
+        }
+        RectTransform parentRect = handCardsContainer.parent as RectTransform;
+        if (parentRect == null || parentRect.rect.width <= 0f) {
+            return 1f;
+        }
+        float handWidth = tileCardWidth * handStructure.DisplayWidthUnits * ruleScale;
+        float left = Mathf.Max(defaultHandCardsContainerPosition.x, HandLeftGuardX);
+        float usable = parentRect.rect.width - left - HandRightMargin;
+        if (usable <= 0f || handWidth <= usable) {
+            return 1f;
+        }
+        return usable / handWidth;
     }
 
     public static float GetCardWidth(RectTransform cardRect) {
