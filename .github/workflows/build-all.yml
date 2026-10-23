@@ -94,7 +94,7 @@ jobs:
           versioning: None
           buildsPath: build
 
-      - name: Collect APK & verify signatures (v1+v2+v3)
+      - name: Collect & re-sign APK (v1+v2+v3)
         run: |
           set -euo pipefail
           echo "Found .apk files:"
@@ -105,9 +105,48 @@ jobs:
             exit 1
           fi
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
-          # Unity 的 Android 构建在 unityci 容器内完成，本机 runner 没有 Android SDK，
-          # 直接用 python 检查 zip 内容即可确认 v1(JAR) 签名是否存在。
-          python3 - "$APK" <<'PY'
+          printf '%s' "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          # Unity 的 Android 构建在 unityci 容器内完成，runner 本身没有 Android SDK，
+          # 所以复用同一镜像里的 build-tools/apksigner，把 APK 重签为 v1+v2+v3
+          # （minSdk>=24 时 AGP 默认只写 v2/v3，部分国产 ROM 安装器据此提示「未签名」）。
+          IMAGE="unityci/editor:ubuntu-${{ github.event.inputs.unityVersion || '6000.4.7f1' }}-android-3"
+          docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE"
+          docker run --rm \
+            --entrypoint /bin/bash \
+            -v "$GITHUB_WORKSPACE:/w" \
+            -v "/tmp/release.keystore:/tmp/release.keystore:ro" \
+            -w /w \
+            -e "APK=$APK" \
+            -e "KEYSTORE_PASS=$KEYSTORE_PASS" \
+            -e "KEYSTORE_ALIAS=$KEYSTORE_ALIAS" \
+            "$IMAGE" -c '
+              set -euo pipefail
+              BT=""
+              for d in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" /opt/android-sdk /opt/android /usr/local/lib/android/sdk /usr/lib/android-sdk; do
+                if [ -n "$d" ] && [ -d "$d/build-tools" ]; then
+                  BT="$(ls -d "$d"/build-tools/* | sort -V | tail -n 1)"
+                  break
+                fi
+              done
+              if [ -z "$BT" ]; then
+                BIN="$(find / -type f -name apksigner -not -path '/proc/*' 2>/dev/null | head -n 1 || true)"
+                if [ -n "$BIN" ]; then BT="$(dirname "$BIN")"; fi
+              fi
+              test -x "$BT/apksigner" || { echo "apksigner not found"; ls /opt 2>/dev/null || true; exit 1; }
+              echo "Using $BT/apksigner"
+              "$BT/apksigner" sign \
+                --ks /tmp/release.keystore \
+                --ks-key-alias "$KEYSTORE_ALIAS" \
+                --ks-pass "pass:$KEYSTORE_PASS" \
+                --key-pass "pass:$KEYSTORE_PASS" \
+                --v1-signing-enabled true \
+                --v2-signing-enabled true \
+                --v3-signing-enabled true \
+                --out /w/Android.apk "$APK"
+              "$BT/apksigner" verify --verbose --print-certs /w/Android.apk
+            '
+          # 断言 v1(JAR) 签名存在，否则部分 ROM 安装器仍会提示未签名
+          python3 - "$GITHUB_WORKSPACE/Android.apk" <<'PY'
           import re, struct, sys, zipfile
           path = sys.argv[1]
           names = zipfile.ZipFile(path).namelist()
@@ -132,7 +171,6 @@ jobs:
           if '0x1a2b3c4d' not in ids:
               sys.exit("::error::v2 signature missing")
           PY
-          cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
           sha256sum "$GITHUB_WORKSPACE/Android.apk"
 
       - name: Upload APK
