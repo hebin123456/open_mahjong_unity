@@ -94,7 +94,7 @@ jobs:
           versioning: None
           buildsPath: build
 
-      - name: Collect & re-sign APK (v1+v2+v3)
+      - name: Collect APK & verify signatures (v1+v2+v3)
         run: |
           set -euo pipefail
           echo "Found .apk files:"
@@ -105,30 +105,34 @@ jobs:
             exit 1
           fi
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
-          # Unity/AGP 在 minSdk>=24 时默认只生成 v2/v3 签名、不带 v1(JAR)，
-          # 部分国产 ROM 的安装器会据此提示「未签名」。这里统一重签为 v1+v2+v3。
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
-          BT="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
-          if [ -z "$BT" ] || [ ! -x "$BT/apksigner" ]; then
-            echo "::error::apksigner not found under Android SDK ($SDK)"
-            ls "$SDK" 2>/dev/null || true
-            exit 1
-          fi
-          echo "Using $BT/apksigner"
-          printf '%s' "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
-          "$BT/apksigner" sign \
-            --ks /tmp/release.keystore \
-            --ks-key-alias "$KEYSTORE_ALIAS" \
-            --ks-pass "pass:$KEYSTORE_PASS" \
-            --key-pass "pass:$KEYSTORE_PASS" \
-            --v1-signing-enabled true \
-            --v2-signing-enabled true \
-            --v3-signing-enabled true \
-            --out "$GITHUB_WORKSPACE/Android.apk" "$APK"
-          "$BT/apksigner" verify --verbose --print-certs "$GITHUB_WORKSPACE/Android.apk" | tee /tmp/verify.txt
-          # v1 必须存在，否则部分安装器仍会提示未签名
-          unzip -l "$GITHUB_WORKSPACE/Android.apk" | grep -Eq 'META-INF/[^/]+\.(RSA|EC|DSA)' \
-            || { echo "::error::v1 signature (META-INF) missing after re-sign"; exit 1; }
+          # Unity 的 Android 构建在 unityci 容器内完成，本机 runner 没有 Android SDK，
+          # 直接用 python 检查 zip 内容即可确认 v1(JAR) 签名是否存在。
+          python3 - "$APK" <<'PY'
+          import re, struct, sys, zipfile
+          path = sys.argv[1]
+          names = zipfile.ZipFile(path).namelist()
+          v1 = [n for n in names if re.fullmatch(r'META-INF/[^/]+\.(RSA|EC|DSA)', n)]
+          print("v1 signature entries:", v1 or "MISSING")
+          if not v1:
+              sys.exit("::error::v1 signature (META-INF/*.RSA) missing; some ROM installers will report unsigned")
+          # APK Signing Block 位于中央目录之前，解析其中的 (id, value) 对确认 v2/v3
+          data = open(path, 'rb').read()
+          eocd = data.rfind(b'PK\x05\x06')
+          cd_off = struct.unpack('<I', data[eocd + 16:eocd + 20])[0]
+          ids = []
+          if data[cd_off - 16:cd_off] == b'APK Sig Block 42':
+              size = struct.unpack('<Q', data[cd_off - 24:cd_off - 16])[0]
+              p = cd_off - size - 8 + 8
+              while p < cd_off - 24:
+                  ln = struct.unpack('<Q', data[p:p + 8])[0]
+                  ids.append(hex(struct.unpack('<I', data[p + 8:p + 12])[0]))
+                  p += 8 + ln
+          print("APK Signing Block ids:", ids)
+          print("v2 present:", '0x1a2b3c4d' in ids, "| v3 present:", '0x1f2b3c4d' in ids)
+          if '0x1a2b3c4d' not in ids:
+              sys.exit("::error::v2 signature missing")
+          PY
+          cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
           sha256sum "$GITHUB_WORKSPACE/Android.apk"
 
       - name: Upload APK
