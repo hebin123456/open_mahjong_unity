@@ -98,6 +98,8 @@ public static class SoloServerBootstrap {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
+            // 局域网多人：监听 0.0.0.0 并开启 UDP 房间发现应答（Android 由 Python 侧默认开启）。
+            psi.EnvironmentVariables["SOLO_LAN"] = "1";
             _proc = new System.Diagnostics.Process {
                 StartInfo = psi,
                 EnableRaisingEvents = true,

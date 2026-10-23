@@ -3,14 +3,17 @@
 设计目标：
 - 只依赖 Python 标准库 + 仓库内的 ``pydantic``/``mahjong``（不依赖 FastAPI / 数据库 / pythonnet）。
 - 复用线上服务端的杭州对局引擎（``server.gamestate.game_hangzhou``）与其动作处理 ``handle_action``。
-- 在 127.0.0.1:PORT 上提供客户端所需的最小协议子集：版本检查、登录、单机开局、对局动作。
+- 默认监听 127.0.0.1 提供单机对局；``SOLO_LAN=1`` 时监听 0.0.0.0 并开启 UDP 房间发现，
+  同一局域网的其它客户端可搜索并加入房间，房主可随时用机器人补位。
 
 协议流程（客户端 SoloMode）：
     send_release_version  -> 忽略（单机不校验版本）
-    login(is_tourist)     -> 回 login 成功 + login_info
-    solo/start            -> 建内存房间（1 真人 + 3 机器人）并启动杭州对局引擎
-    gamestate/hangzhou/*  -> handle_action（复用线上实现）
-之后服务端把引擎产生的 gamestate 消息推给客户端，客户端收到 game_start 即进入牌桌。
+    login(is_tourist)     -> 动态分配真人 user_id（101 起自增）并回 login 成功
+    room/create_*         -> 建房；局域网模式下初始只有房主一人，其余座位留给真人/机器人
+    room/join_room        -> 其它客户端加入本机房间（满座时顶替一个机器人座位）
+    room/add_bot(*)       -> 房主给空座补机器人（摸切/牌效罗伯特/高性能罗伯特）
+    room/start_game       -> 房主开局，缺座自动补满机器人后启动引擎
+    gamestate/*           -> handle_action（复用线上实现），引擎按连接广播给所有真人
 """
 
 import asyncio
@@ -20,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import socket
 import struct
 import sys
 import uuid
@@ -69,6 +73,39 @@ GUOBIAO_RULE = "guobiao"
 GUOBIAO_SUB_RULE = "guobiao/standard"
 RULE_ROOM_NAMES = {HANGZHOU_RULE: "单机杭州麻将", XIAOSHAN_RULE: "单机萧山麻将",
                    GUOBIAO_RULE: "单机国标麻将"}
+RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将", GUOBIAO_RULE: "国标麻将"}
+
+# 三种加机器人入口对应的机器人 id（1=摸切、2=牌效罗伯特、3=高性能罗伯特），
+# 用于房主按入口偏好选人；被占用的 id 自动跳过。
+BOT_PREFERRED_IDS = {"room/add_guobiao_heuristic_bot": 3, "room/add_smart_bot": 2, "room/add_bot": 1}
+
+# 局域网房间发现：客户端广播该探测包，服务端回一包 JSON 房间摘要。
+LAN_DISCOVERY_PORT = 18764
+LAN_DISCOVERY_MAGIC = b"OMU_DISCOVER"
+LAN_DISCOVERY_REPLY_MAGIC = "OMU_SOLO"
+
+
+def _running_under_chaquopy() -> bool:
+    """Android 端经 Chaquopy 内嵌运行，无独立进程可注入环境变量，默认开启局域网。"""
+    try:
+        import java  # noqa: F401  Chaquopy 提供的桥接模块，仅 Android 上存在
+        return True
+    except Exception:
+        return False
+
+
+def _env_lan_mode() -> bool:
+    """SOLO_LAN=1 开启局域网模式；Android(Chaquopy) 默认开启，PC 默认关闭。"""
+    return os.environ.get("SOLO_LAN", "1" if _running_under_chaquopy() else "0") == "1"
+
+
+def _env_host() -> str:
+    """监听地址：显式 SOLO_HOST 优先；局域网模式对整个局域网开放，否则仅本机。"""
+    host = os.environ.get("SOLO_HOST")
+    if host:
+        return host
+    return "0.0.0.0" if _env_lan_mode() else "127.0.0.1"
+
 
 # 国标建房会透传给引擎的开局参数（起和番限制、花牌、天地人和、错和、鸣牌保护等）
 GUOBIAO_PASSTHROUGH_KEYS = (
@@ -122,6 +159,8 @@ class WsConnection:
         self.Connect_id = None
         # 握手请求的 path（如 /game/<id>、/chat/<id>），用于区分对局连接与其它连接
         self.path = ""
+        # 对端 IP（如 127.0.0.1），用于识别「本机房主连接」以便断线后重连复用房主身份
+        self.peer = ""
         # 所属单机服务：用于把杭州引擎的对外消息按所选大厅规则（杭州/萧山）重新标注
         self.server = None
         # 对局任务与连接读循环可能并发写同一 socket；不加锁会让两帧字节交错，
@@ -272,16 +311,30 @@ class SoloServer:
         self._game = None
         self._room = None        # 当前单机房间的 room_info；None 表示尚未建房
         self._room_opts = {}     # 建房时选定的开局参数（局数等）
+        self._room_password = ""  # 建房密码（加入方需校验）
         self._label_rule = HANGZHOU_RULE             # 对外展示的大厅规则（杭州/萧山）
         self._label_sub_rule = HANGZHOU_SUB_RULE
         self._start_lock = asyncio.Lock()
+        # 局域网多人：真人 user_id 动态分配（101 起自增），昵称按序号生成
+        self._next_human_id = HUMAN_USER_ID
+        self._human_names = {}
+        # Android(Chaquopy) 无法由 C# 注入环境变量，默认开启局域网；PC 由 Bootstrap 注入 SOLO_LAN。
+        self.lan_mode = _env_lan_mode()
+        self._discovery_transport = None
 
 
 # ----------------------------------------------------------------------------
 # 单机对局启动
 # ----------------------------------------------------------------------------
-def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 300,
-                     rule: str = HANGZHOU_RULE, sub_rule: str = None,
+def _human_name(server: SoloServer, uid: int) -> str:
+    """真人昵称：登录时按序号生成（玩家1/玩家2…），未知 id 兜底显示。"""
+    if uid in server._human_names:
+        return server._human_names[uid]
+    return ("玩家" + str(uid - HUMAN_USER_ID + 1)) if uid > 10 else BOT_USERNAMES.get(uid, f"机器人{uid}")
+
+
+def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
+                     round_timer: int = 300, rule: str = HANGZHOU_RULE, sub_rule: str = None,
                      opts: dict = None) -> dict:
     # 引擎按 room_rule/sub_rule 选择；萧山复用杭州栈，国标走独立引擎。
     if rule == XIAOSHAN_RULE:
@@ -291,16 +344,23 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
     else:
         room_rule, sub = HANGZHOU_RULE, HANGZHOU_SUB_RULE
     opts = opts or {}
-    # 国标三麻：1 真人 + 2 机器人，共 3 家
-    bots = BOT_USER_IDS[:2] if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else BOT_USER_IDS
+    # 座位以房间当前人员为准：房主开局时若仍缺人，处理层已自动补满机器人
+    room = server._room
+    players = list(room["player_list"]) if room is not None else [HUMAN_USER_ID] + BOT_USER_IDS
+    # 国标三麻为 3 家；杭州/萧山/国标均为 4 家
+    while len(players) < (3 if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else 4):
+        for bot_id in BOT_USER_IDS:
+            if bot_id not in players:
+                players.append(bot_id)
+                break
     # 国标引擎的 GameInfo（服务端与客户端）都要求 room_id 为整数，字符串会校验失败
     # 导致 game_start 发不出去（表现为创建房间后点开始游戏无反应）；杭州引擎不受此限。
     data = dict(
         room_id=0 if rule == GUOBIAO_RULE else "solo-" + room_rule,
         room_rule=room_rule,
         sub_rule=sub,
-        player_list=[HUMAN_USER_ID] + bots,
-        player_settings={HUMAN_USER_ID: {"username": HUMAN_USERNAME}},
+        player_list=players,
+        player_settings=_player_settings_for(server, players),
         game_round=rounds,
         round_timer=round_timer,
         step_timer=step_timer,
@@ -328,35 +388,53 @@ def _build_room_data(rounds: int = 4, step_timer: int = 20, round_timer: int = 3
     return data
 
 
-def _player_settings() -> dict:
-    """房间 4 个座位（1 真人 + 3 机器人）的展示信息，客户端用其中的 username 渲染座位名。"""
-    settings = {
-        str(HUMAN_USER_ID): {
-            "user_id": HUMAN_USER_ID, "username": HUMAN_USERNAME,
-            "title_id": 1, "profile_image_id": 1, "character_id": 1,
-            "voice_id": 1, "avatar_frame_id": 0,
-        }
-    }
-    for bot_id in BOT_USER_IDS:
-        settings[str(bot_id)] = {
-            "user_id": bot_id, "username": BOT_USERNAMES.get(bot_id, f"机器人{bot_id}"),
+def _player_settings_for(server: SoloServer, players) -> dict:
+    """房间各座位的展示信息，客户端用其中的 username 渲染座位名（真人/机器人通吃）。"""
+    settings = {}
+    for uid in players:
+        if uid > 10:
+            name = _human_name(server, uid)
+        else:
+            name = BOT_USERNAMES.get(uid, f"机器人{uid}")
+        settings[str(uid)] = {
+            "user_id": uid, "username": name,
             "title_id": 1, "profile_image_id": 1, "character_id": 1,
             "voice_id": 1, "avatar_frame_id": 0,
         }
     return settings
 
 
-def _build_room_info(rounds: int, room_name: str = "", password: str = "",
-                     rule: str = HANGZHOU_RULE, sub_rule: str = HANGZHOU_SUB_RULE,
-                     opts: dict = None) -> dict:
+def _sync_room_view(server: SoloServer) -> None:
+    """座位变化后刷新 room_info 的派生字段（seat_list/准备名单/展示信息）。"""
+    room = server._room
+    if room is None:
+        return
+    players = room["player_list"]
+    room["seat_list"] = list(players)
+    room["player_settings"] = _player_settings_for(server, players)
+    # 客户端把 user_id<=10 视为机器人且默认「已准备」，ready_list 只需维护真人
+    room["ready_list"] = [uid for uid in room.get("ready_list", [])
+                          if uid in players and uid > 10]
+    host_uid = room.get("host_user_id")
+    if host_uid is not None:
+        room["host_name"] = _human_name(server, host_uid) if host_uid > 10 else BOT_USERNAMES.get(host_uid, "机器人")
+
+
+def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: str = "",
+                     password: str = "", rule: str = HANGZHOU_RULE,
+                     sub_rule: str = HANGZHOU_SUB_RULE, opts: dict = None) -> dict:
     """客户端 RoomPanel 需要的 room_info。
 
-    直接放入 1 真人 + 3 机器人（国标三麻为 1 真人 + 2 机器人）：客户端把
-    user_id<=10 视为机器人且默认「已准备」，人数一满「开始游戏」即可点击。
+    纯单机（lan_mode=False）保持旧行为：建房即放满机器人，人数一满「开始游戏」即可点击。
+    局域网模式（lan_mode=True）初始只有房主一人，其余座位留给加入的真人或房主手动补机器人。
     """
     opts = opts or {}
     sanma = rule == GUOBIAO_RULE and (sub_rule or GUOBIAO_SUB_RULE) == "guobiao/sanma"
-    players = [HUMAN_USER_ID] + (BOT_USER_IDS[:2] if sanma else BOT_USER_IDS)
+    max_player = 3 if sanma else 4
+    if server.lan_mode:
+        players = [host_uid]
+    else:
+        players = [host_uid] + (BOT_USER_IDS[:2] if sanma else BOT_USER_IDS)
     info = {
         "room_id": SOLO_ROOM_ID,
         "instance_id": SOLO_INSTANCE_ID,
@@ -366,17 +444,17 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "",
         "hepai_limit": opts.get("hepai_limit", 8) if rule == GUOBIAO_RULE else 0,
         "tourist_limit": False,
         "allow_spectator": False,
-        "max_player": 3 if sanma else 4,
+        "max_player": max_player,
         "player_list": players,
-        "seat_list": players,
+        "seat_list": list(players),
         "ready_list": [],
-        "player_settings": _player_settings(),
+        "player_settings": {},
         "has_password": bool(password),
         "tips": True,
         "count_tips": False,
         "pointer_tips": True,
-        "host_name": HUMAN_USERNAME,
-        "host_user_id": HUMAN_USER_ID,
+        "host_name": _human_name(server, host_uid),
+        "host_user_id": host_uid,
         "room_name": room_name or RULE_ROOM_NAMES.get(rule, "单机麻将"),
         "game_round": rounds,
         "round_timer": 300,
@@ -411,6 +489,8 @@ def _build_room_info(rounds: int, room_name: str = "", password: str = "",
         info["detailed_config"] = {
             key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
         }
+    server._room = info
+    _sync_room_view(server)
     return info
 
 
@@ -420,6 +500,65 @@ async def _broadcast_room_info(server: SoloServer, conn: WsConnection):
         return
     await _send(conn, {"type": "room/refresh_room_info", "success": True,
                        "message": "", "room_info": server._room})
+
+
+async def _send_room_info(server: SoloServer, conn: WsConnection):
+    """推最新 room_info 给单个连接（房间已解散时提示不在房间）。"""
+    room = server._room
+    if room is None:
+        await _send(conn, {"type": "room/sync_not_in_room", "success": True,
+                           "message": "当前不在房间中"})
+        return
+    await _send(conn, {"type": "room/refresh_room_info", "success": True,
+                       "message": "", "room_info": room})
+
+
+async def _broadcast_room_info_all(server: SoloServer):
+    """座位/状态变化后，把最新 room_info 推给房间内所有真人连接。"""
+    for uid, conn in list(server.user_id_to_connection.items()):
+        if uid <= 10:
+            continue
+        try:
+            await _send(conn, {"type": "room/refresh_room_info", "success": True,
+                               "message": "", "room_info": server._room})
+        except Exception as exc:
+            logger.warning("房间广播失败 uid=%s: %s", uid, exc)
+
+
+async def _notify_others(server: SoloServer, exclude_uid: int, payload: dict):
+    """给除 exclude_uid 外的所有真人连接推一条消息（如房主变更/解散通知）。"""
+    for uid, conn in list(server.user_id_to_connection.items()):
+        if uid <= 10 or uid == exclude_uid:
+            continue
+        try:
+            await _send(conn, payload)
+        except Exception:
+            pass
+
+
+async def _dissolve_room(server: SoloServer, exclude_uid: int = None, reason: str = "房主已解散房间") -> None:
+    """解散当前房间：结束对局、清空房间状态并通知房内真人。"""
+    room = server._room
+    if room is None:
+        return
+    await _stop_solo_game(server)
+    members = [uid for uid in room.get("player_list", []) if uid > 10]
+    server._room = None
+    server._room_opts = {}
+    server._room_password = ""
+    server._label_rule = HANGZHOU_RULE
+    server._label_sub_rule = HANGZHOU_SUB_RULE
+    for uid in members:
+        if uid == exclude_uid:
+            continue
+        conn = server.user_id_to_connection.get(uid)
+        if conn is None:
+            continue
+        try:
+            await _send(conn, {"type": "room/sync_not_in_room", "success": True,
+                               "message": reason})
+        except Exception:
+            pass
 
 
 async def _stop_solo_game(server: SoloServer):
@@ -444,6 +583,11 @@ async def _run_game_loop(server: SoloServer, state) -> None:
     try:
         await state.run_game_loop()
         _note("对局循环正常结束")
+        # 对局正常打完：复位房间状态，房主可直接再次开局
+        room = server._room
+        if room is not None and room.get("is_game_running"):
+            room["is_game_running"] = False
+            await _broadcast_room_info_all(server)
     except asyncio.CancelledError:
         _note("对局循环被取消")
         raise
@@ -451,8 +595,9 @@ async def _run_game_loop(server: SoloServer, state) -> None:
         reason = "%s: %s" % (type(exc).__name__, exc)
         logger.exception("单机对局循环异常退出")
         _note("!! 对局循环异常退出: " + reason)
-        conn = server.user_id_to_connection.get(HUMAN_USER_ID)
-        if conn is not None:
+        for uid, conn in list(server.user_id_to_connection.items()):
+            if uid <= 10:
+                continue
             try:
                 await conn.send_json({
                     "type": "error_message",
@@ -483,6 +628,7 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             engine, label = HangzhouGameState, "杭州"
 
         room_data = _build_room_data(
+            server,
             rounds=int(opts.get("rounds") or 4),
             step_timer=int(opts.get("step_timer") or 20),
             round_timer=int(opts.get("round_timer") or 300),
@@ -524,6 +670,270 @@ async def _send(conn: WsConnection, payload: dict):
     await conn.send_json(payload)
 
 
+# ----------------------------------------------------------------------------
+# 房间协议处理（局域网多真人）
+# ----------------------------------------------------------------------------
+def _is_local_connection(conn: WsConnection) -> bool:
+    """是否来自本机（房主客户端）。房主断线重连时借此复用房主身份。"""
+    return conn.peer in ("127.0.0.1", "::1", "")
+
+
+def _is_room_host(server: SoloServer, conn: WsConnection) -> bool:
+    room = server._room
+    return room is not None and conn.user_id is not None and conn.user_id == room.get("host_user_id")
+
+
+def _acquire_user_id(server: SoloServer, conn: WsConnection) -> int:
+    """登录分配真人 user_id；本机重连且房主座位空置时沿用原房主身份。"""
+    room = server._room
+    if room is not None and _is_local_connection(conn):
+        host_uid = room.get("host_user_id")
+        if isinstance(host_uid, int) and host_uid > 10 \
+                and server.user_id_to_connection.get(host_uid) is None:
+            return host_uid
+    uid = server._next_human_id
+    server._next_human_id += 1
+    server._human_names[uid] = f"玩家{uid - HUMAN_USER_ID + 1}"
+    return uid
+
+
+async def _handle_get_room_list(server: SoloServer, conn: WsConnection, message: dict):
+    """单机服务只有一个房间；返回它让加入方的房间列表能看到（也可走 UDP 发现）。"""
+    room = server._room
+    room_list = [dict(room)] if room is not None else []
+    await _send(conn, {"type": "room/get_room_list", "success": True, "message": "",
+                       "room_list": room_list, "show_tip": bool(message.get("show_tip"))})
+
+
+async def _handle_create_room(server: SoloServer, conn: WsConnection, message: dict):
+    """建房。局域网模式下初始只有房主一人；重复建房视为房主重建（可改规则/参数）。"""
+    room = server._room
+    uid = conn.user_id
+    if room is not None and uid not in room.get("player_list", []):
+        await _send(conn, {"type": "room/create_room_done", "success": False,
+                           "message": "本机已存在房间，无法重复创建"})
+        return
+    if room is not None:
+        await _dissolve_room(server, exclude_uid=uid, reason="房主重建了房间")
+    # 杭州/萧山共用同一引擎，国标走独立引擎；仅按建房时选择的大厅规则决定引擎与展示名。
+    rule, sub_rule = _resolve_room_rule(message)
+    server._label_rule = rule
+    server._label_sub_rule = sub_rule
+    rounds = int(message.get("gameround") or 4)
+    opts = {"rounds": rounds, "sub_rule": sub_rule}
+    for key in ("round_timer", "step_timer"):
+        if message.get(key) is not None:
+            opts[key] = int(message[key])
+    if rule == GUOBIAO_RULE:
+        # 国标：透传起和番限制、花牌、天地人和、错和、鸣牌保护等开局参数
+        for key in GUOBIAO_PASSTHROUGH_KEYS:
+            if key in message and message[key] is not None:
+                opts[key] = message[key]
+    elif rule == XIAOSHAN_RULE:
+        # 萧山：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
+        for key in XIAOSHAN_PASSTHROUGH_KEYS:
+            if key in message and message[key] is not None:
+                opts[key] = message[key]
+        detailed = message.get("detailed_config")
+        if isinstance(detailed, dict) and detailed:
+            opts["detailed_config"] = detailed
+    server._room_opts = opts
+    server._room_password = str(message.get("password") or "")
+    _build_room_info(server, uid, rounds, room_name=message.get("roomname", ""),
+                     password=server._room_password, rule=rule, sub_rule=sub_rule, opts=opts)
+    logger.info("已创建单机房间 %s，规则=%s，玩家=%s，局域网=%s",
+                SOLO_ROOM_ID, rule, server._room["player_list"], server.lan_mode)
+    await _send(conn, {"type": "room/create_room_done", "success": True,
+                       "message": "房间创建成功", "room_info": server._room})
+
+
+async def _handle_add_bot(server: SoloServer, conn: WsConnection, message: dict, mtype: str):
+    """房主给空座补机器人；三种入口对应偏好机器人，被占用则自动顺延。"""
+    room = server._room
+    if room is None:
+        await _send(conn, {"type": "error_message", "success": False, "message": "尚未创建房间"})
+        return
+    if room.get("is_game_running"):
+        await _send(conn, {"type": "error_message", "success": False, "message": "对局进行中，无法加机器人"})
+        return
+    if not _is_room_host(server, conn):
+        await _send(conn, {"type": "error_message", "success": False, "message": "只有房主可以加机器人"})
+        return
+    players = room["player_list"]
+    max_player = int(room.get("max_player") or 4)
+    if len(players) >= max_player:
+        await _send(conn, {"type": "error_message", "success": False, "message": "房间已满座"})
+        return
+    free = [uid for uid in BOT_USER_IDS if uid not in players]
+    if not free:
+        await _send(conn, {"type": "error_message", "success": False, "message": "机器人已用完"})
+        return
+    preferred = BOT_PREFERRED_IDS.get(mtype, 1)
+    bot_uid = preferred if preferred in free else free[0]
+    players.append(bot_uid)
+    _sync_room_view(server)
+    _note("房主加机器人 uid=" + str(bot_uid) + " 座位=" + str(players))
+    await _broadcast_room_info_all(server)
+
+
+async def _handle_kick_player(server: SoloServer, conn: WsConnection, message: dict):
+    """房主移出玩家/机器人；支持 seat_index 或 target_user_id 定位。"""
+    room = server._room
+    if room is None:
+        await _send(conn, {"type": "error_message", "success": False, "message": "尚未创建房间"})
+        return
+    if not _is_room_host(server, conn):
+        await _send(conn, {"type": "error_message", "success": False, "message": "只有房主可以移出玩家"})
+        return
+    players = room["player_list"]
+    target = message.get("target_user_id")
+    seat = message.get("seat_index")
+    if not isinstance(target, int) and isinstance(seat, int) and 0 <= seat < len(players):
+        target = players[seat]
+    if not isinstance(target, int) or target not in players:
+        await _send(conn, {"type": "error_message", "success": False, "message": "目标座位没有玩家"})
+        return
+    if target == room.get("host_user_id"):
+        await _send(conn, {"type": "error_message", "success": False, "message": "不能移出房主"})
+        return
+    players.remove(target)
+    _sync_room_view(server)
+    _note("房主移出 uid=" + str(target) + " 座位=" + str(players))
+    if target > 10:
+        kicked_conn = server.user_id_to_connection.get(target)
+        if kicked_conn is not None:
+            try:
+                await _send(kicked_conn, {"type": "room/sync_not_in_room", "success": True,
+                                          "message": "房主已将你移出房间"})
+            except Exception:
+                pass
+    await _broadcast_room_info_all(server)
+
+
+async def _handle_set_ready(server: SoloServer, conn: WsConnection, message: dict):
+    """非房主真人的准备状态；机器人视为永远已准备（客户端约定 uid<=10）。"""
+    room = server._room
+    uid = conn.user_id
+    if room is None or uid is None or uid not in room.get("player_list", []):
+        return
+    ready_list = room.setdefault("ready_list", [])
+    ready = bool(message.get("ready"))
+    if ready and uid not in ready_list:
+        ready_list.append(uid)
+    if not ready and uid in ready_list:
+        ready_list.remove(uid)
+    await _broadcast_room_info_all(server)
+
+
+async def _handle_join_room(server: SoloServer, conn: WsConnection, message: dict):
+    """其它客户端加入本机房间；满座时可顶替一个机器人座位。"""
+    room = server._room
+    if room is None:
+        await _send(conn, {"type": "room/join_room_done", "success": False,
+                           "message": "本机暂无开放房间"})
+        return
+    if room.get("is_game_running"):
+        await _send(conn, {"type": "room/join_room_done", "success": False,
+                           "message": "对局已开始，无法加入"})
+        return
+    if server._room_password and str(message.get("password") or "") != server._room_password:
+        await _send(conn, {"type": "room/join_room_done", "success": False,
+                           "message": "房间密码错误"})
+        return
+    uid = conn.user_id
+    players = room["player_list"]
+    if uid in players:
+        await _send(conn, {"type": "room/join_room_done", "success": True,
+                           "message": "已在房间中", "room_info": room})
+        await _send_room_info(server, conn)
+        return
+    bot_seat = None
+    if len(players) >= int(room.get("max_player") or 4):
+        for i, seat_uid in enumerate(players):
+            if seat_uid <= 10:
+                bot_seat = i
+                break
+        if bot_seat is None:
+            await _send(conn, {"type": "room/join_room_done", "success": False,
+                               "message": "房间已满"})
+            return
+    if bot_seat is not None:
+        players[bot_seat] = uid
+    else:
+        players.append(uid)
+    _sync_room_view(server)
+    _note("玩家加入房间 uid=" + str(uid) + " 座位=" + str(players))
+    await _send(conn, {"type": "room/join_room_done", "success": True,
+                       "message": "加入房间成功", "room_info": room})
+    await _broadcast_room_info_all(server)
+
+
+async def _handle_start_game(server: SoloServer, conn: WsConnection, message: dict):
+    """房主开局；缺座自动补满机器人后启动引擎（引擎按连接广播 game_start）。"""
+    room = server._room
+    if room is None:
+        await _send(conn, {"type": "error_message", "success": False, "message": "尚未创建房间"})
+        return
+    if room.get("is_game_running"):
+        await _send(conn, {"type": "error_message", "success": False, "message": "对局已开始"})
+        return
+    if not _is_room_host(server, conn):
+        await _send(conn, {"type": "error_message", "success": False, "message": "只有房主可以开始游戏"})
+        return
+    players = room["player_list"]
+    max_player = int(room.get("max_player") or 4)
+    # 缺人的座位自动补机器人，保证引擎能凑齐一桌
+    changed = False
+    while len(players) < max_player:
+        for bot_id in BOT_USER_IDS:
+            if bot_id not in players:
+                players.append(bot_id)
+                changed = True
+                break
+        else:
+            break
+    if changed:
+        _sync_room_view(server)
+        _note("开局自动补机器人 座位=" + str(players))
+    room["is_game_running"] = True
+    await _broadcast_room_info_all(server)
+    await start_solo_game(server, conn, **server._room_opts)
+
+
+async def _handle_leave_room(server: SoloServer, conn: WsConnection, message: dict):
+    """离开房间：房主离开→解散并通知；普通真人离开→移出座位并广播。"""
+    room = server._room
+    uid = conn.user_id
+    done = {"type": "room/leave_room_done", "success": True, "message": "离开房间成功",
+            "room_id": message.get("room_id", SOLO_ROOM_ID), "room_instance_id": SOLO_INSTANCE_ID}
+    if room is None or uid is None or uid not in room.get("player_list", []):
+        await _send(conn, done)
+        return
+    if room.get("is_game_running"):
+        await _stop_solo_game(server)
+        room["is_game_running"] = False
+    if uid == room.get("host_user_id"):
+        await _dissolve_room(server, exclude_uid=uid, reason="房主已离开，房间解散")
+        await _send(conn, done)
+        return
+    room["player_list"].remove(uid)
+    _sync_room_view(server)
+    _note("玩家离开房间 uid=" + str(uid) + " 座位=" + str(room["player_list"]))
+    await _send(conn, done)
+    await _broadcast_room_info_all(server)
+
+
+async def _handle_sync_my_room(server: SoloServer, conn: WsConnection):
+    """客户端重连/切页后同步自己是否在房间及最新房间数据。"""
+    room = server._room
+    uid = conn.user_id
+    if room is not None and uid is not None and uid in room.get("player_list", []):
+        await _send_room_info(server, conn)
+    else:
+        await _send(conn, {"type": "room/sync_not_in_room", "success": True,
+                           "message": "当前不在房间中"})
+
+
 async def _handle_message(server: SoloServer, conn: WsConnection, message: dict):
     mtype = message.get("type", "")
     _note("← " + str(mtype))
@@ -541,16 +951,17 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         if "/chat" in (conn.path or ""):
             _note("忽略聊天连接登录 " + str(conn.Connect_id))
             return
-        conn.user_id = HUMAN_USER_ID
+        uid = _acquire_user_id(server, conn)
+        conn.user_id = uid
         server.players[conn.Connect_id] = conn
-        server.user_id_to_connection[HUMAN_USER_ID] = conn
+        server.user_id_to_connection[uid] = conn
         await _send(conn, {
             "type": "login",
             "success": True,
             "message": "登录成功",
             "login_info": {
-                "user_id": HUMAN_USER_ID,
-                "username": HUMAN_USERNAME,
+                "user_id": uid,
+                "username": _human_name(server, uid),
                 "userkey": "solo-userkey",
                 "is_tourist": True,
             },
@@ -570,41 +981,13 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
         return
 
     # ---- 房间协议：复用线上建房/开局流程，让大厅「创建房间 → 开始游戏」可用 ----
+    # 局域网模式下这些处理支持多真人：加入、准备、房主补机器人/踢人、开局广播。
     if mtype == "room/get_room_list":
-        await _send(conn, {"type": "room/get_room_list", "success": True, "message": "",
-                           "room_list": [], "show_tip": bool(message.get("show_tip"))})
+        await _handle_get_room_list(server, conn, message)
         return
 
     if mtype in ("room/create_Hangzhou_room", "room/create_Xiaoshan_room", "room/create_GB_room"):
-        # 杭州/萧山共用同一引擎，国标走独立引擎；仅按建房时选择的大厅规则决定引擎与展示名。
-        rule, sub_rule = _resolve_room_rule(message)
-        server._label_rule = rule
-        server._label_sub_rule = sub_rule
-        rounds = int(message.get("gameround") or 4)
-        opts = {"rounds": rounds, "sub_rule": sub_rule}
-        for key in ("round_timer", "step_timer"):
-            if message.get(key) is not None:
-                opts[key] = int(message[key])
-        if rule == GUOBIAO_RULE:
-            # 国标：透传起和番限制、花牌、天地人和、错和、鸣牌保护等开局参数
-            for key in GUOBIAO_PASSTHROUGH_KEYS:
-                if key in message and message[key] is not None:
-                    opts[key] = message[key]
-        elif rule == XIAOSHAN_RULE:
-            # 萧山：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
-            for key in XIAOSHAN_PASSTHROUGH_KEYS:
-                if key in message and message[key] is not None:
-                    opts[key] = message[key]
-            detailed = message.get("detailed_config")
-            if isinstance(detailed, dict) and detailed:
-                opts["detailed_config"] = detailed
-        server._room_opts = opts
-        server._room = _build_room_info(rounds, room_name=message.get("roomname", ""),
-                                        password=message.get("password", ""), rule=rule, sub_rule=sub_rule,
-                                        opts=opts)
-        logger.info("已创建单机房间 %s，规则=%s，玩家=%s", SOLO_ROOM_ID, rule, server._room["player_list"])
-        await _send(conn, {"type": "room/create_room_done", "success": True,
-                           "message": "房间创建成功", "room_info": server._room})
+        await _handle_create_room(server, conn, message)
         return
 
     if mtype.startswith("room/create_"):
@@ -613,10 +996,38 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
                            "message": "单机版仅支持杭州麻将、萧山麻将和国标麻将"})
         return
 
-    if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot",
-                 "room/kick_player", "room/set_ready", "room/set_claim_protection"):
-        # 房间已是满座（1 真人 + 3 机器人），这些操作只需回推最新座位状态
-        await _broadcast_room_info(server, conn)
+    if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot"):
+        await _handle_add_bot(server, conn, message, mtype)
+        return
+
+    if mtype == "room/kick_player":
+        await _handle_kick_player(server, conn, message)
+        return
+
+    if mtype == "room/set_ready":
+        await _handle_set_ready(server, conn, message)
+        return
+
+    if mtype == "room/join_room":
+        await _handle_join_room(server, conn, message)
+        return
+
+    if mtype == "room/start_game":
+        await _handle_start_game(server, conn, message)
+        return
+
+    if mtype == "room/leave_room":
+        await _handle_leave_room(server, conn, message)
+        return
+
+    if mtype == "room/sync_my_room":
+        await _handle_sync_my_room(server, conn)
+        return
+
+    if mtype == "room/set_claim_protection":
+        if server._room is not None:
+            server._room["claim_protection"] = bool(message.get("claim_protection"))
+            await _broadcast_room_info_all(server)
         return
 
     if mtype == "room/set_bot_speed":
@@ -628,7 +1039,7 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
             if game is not None:
                 from server.gamestate.public.ai.pacing import normalize_bot_speed
                 game.bot_speed = normalize_bot_speed(speed)
-        await _broadcast_room_info(server, conn)
+            await _broadcast_room_info_all(server)
         return
 
     if mtype == "room/set_bot_level":
@@ -640,32 +1051,7 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
             if game is not None:
                 from server.gamestate.public.ai.level import normalize_bot_level
                 game.bot_level = normalize_bot_level(level)
-        await _broadcast_room_info(server, conn)
-        return
-
-    if mtype == "room/start_game":
-        if server._room is not None:
-            server._room["is_game_running"] = True
-        await start_solo_game(server, conn, **server._room_opts)
-        return
-
-    if mtype == "room/leave_room":
-        await _stop_solo_game(server)
-        server._room = None
-        server._room_opts = {}
-        server._label_rule = HANGZHOU_RULE
-        server._label_sub_rule = HANGZHOU_SUB_RULE
-        await _send(conn, {"type": "room/leave_room_done", "success": True,
-                           "message": "离开房间成功", "room_id": message.get("room_id", SOLO_ROOM_ID),
-                           "room_instance_id": SOLO_INSTANCE_ID})
-        return
-
-    if mtype == "room/sync_my_room":
-        if server._room is not None:
-            await _broadcast_room_info(server, conn)
-        else:
-            await _send(conn, {"type": "room/sync_not_in_room", "success": True,
-                               "message": "当前不在房间中"})
+            await _broadcast_room_info_all(server)
         return
 
     if mtype.startswith("gamestate/"):
@@ -693,7 +1079,13 @@ async def _serve_connection(server: SoloServer, reader, writer):
     conn.server = server
     conn.path = path
     conn.Connect_id = f"solo-{id(conn)}"
-    logger.info("客户端已连接 %s path=%s", conn.Connect_id, path)
+    try:
+        peername = writer.get_extra_info("peername")
+        if isinstance(peername, tuple) and peername:
+            conn.peer = str(peername[0])
+    except Exception:
+        pass
+    logger.info("客户端已连接 %s path=%s peer=%s", conn.Connect_id, path, conn.peer or "?")
     _note("客户端已连接 " + str(conn.Connect_id))
     try:
         while True:
@@ -737,18 +1129,111 @@ async def _serve_connection(server: SoloServer, reader, writer):
             pass
         if conn.user_id is not None:
             server.user_id_to_connection.pop(conn.user_id, None)
-        game = server._game
-        if game is not None and not game.game_task.done():
-            game.game_task.cancel()
+        await _on_connection_lost(server, conn)
         logger.info("客户端断开 %s", conn.Connect_id)
         _note("客户端断开 " + str(conn.Connect_id))
 
 
-async def run_server(host="127.0.0.1", port=18763, ready=None):
+async def _on_connection_lost(server: SoloServer, conn: WsConnection):
+    """真人断线后的房间收尾：房主保留座位等待重连，普通真人移出座位。
+
+    对局中任一真人掉线都会结束对局（引擎无法实时补位），其余玩家退回房间界面。
+    """
+    room = server._room
+    uid = conn.user_id
+    if room is None or uid is None or uid not in room.get("player_list", []):
+        return
+    if room.get("is_game_running"):
+        await _stop_solo_game(server)
+        room["is_game_running"] = False
+    if uid == room.get("host_user_id"):
+        _note("房主断线，保留房间等待重连")
+        await _broadcast_room_info_all(server)
+        return
+    room["player_list"].remove(uid)
+    _sync_room_view(server)
+    _note("玩家断线移出 uid=" + str(uid) + " 座位=" + str(room["player_list"]))
+    await _broadcast_room_info_all(server)
+
+
+def _room_summary(server: SoloServer) -> dict:
+    """UDP 发现应答携带的房间摘要（加入方据此展示房间列表并决定是否加入）。"""
+    room = server._room
+    if room is None:
+        return {"in_room": False}
+    players = room.get("player_list", [])
+    return {
+        "in_room": True,
+        "room_id": room.get("room_id"),
+        "room_name": room.get("room_name"),
+        "rule": room.get("room_rule"),
+        "rule_label": RULE_LABELS.get(room.get("room_rule"), room.get("room_rule")),
+        "host_name": room.get("host_name"),
+        "human_count": len([uid for uid in players if uid > 10]),
+        "player_count": len(players),
+        "max_player": room.get("max_player"),
+        "has_password": room.get("has_password"),
+        "is_game_running": room.get("is_game_running"),
+    }
+
+
+class _DiscoveryProtocol(asyncio.DatagramProtocol):
+    """局域网房间发现应答器：收到广播探测包即回一份单包 JSON 摘要。"""
+
+    def __init__(self, server: SoloServer, ws_port: int):
+        self.server = server
+        self.ws_port = ws_port
+        self.transport = None
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        if data.strip() != LAN_DISCOVERY_MAGIC:
+            return
+        reply = {
+            "magic": LAN_DISCOVERY_REPLY_MAGIC,
+            "port": self.ws_port,
+            "room": _room_summary(self.server),
+        }
+        try:
+            self.transport.sendto(json.dumps(reply, ensure_ascii=False).encode("utf-8"), addr)
+        except Exception:
+            pass
+
+    def error_received(self, exc):
+        logger.warning("UDP 发现应答出错: %s", exc)
+
+
+async def _start_discovery(server: SoloServer, ws_port: int):
+    """绑定 UDP 发现端口并开始应答（绑定失败不影响对局，仅无房间发现）。"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # 同机多开（两台 PC 客户端测试）需要允许复用端口；应答内容各自独立。
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(("", LAN_DISCOVERY_PORT))
+    except OSError as exc:
+        logger.warning("UDP 发现端口 %d 绑定失败（不影响对局）: %s", LAN_DISCOVERY_PORT, exc)
+        sock.close()
+        return
+    loop = asyncio.get_running_loop()
+    transport, _ = await loop.create_datagram_endpoint(
+        lambda: _DiscoveryProtocol(server, ws_port), sock=sock)
+    server._discovery_transport = transport
+    _note("UDP 房间发现已开启 port=" + str(LAN_DISCOVERY_PORT))
+
+
+async def run_server(host=None, port=None, ready=None):
     server = SoloServer()
+    if host is None:
+        host = _env_host()
+    if port is None:
+        port = int(os.environ.get("SOLO_PORT", "18763"))
     srv = await asyncio.start_server(
         lambda r, w: _serve_connection(server, r, w), host, port)
-    logger.info("单机服务已监听 ws://%s:%d/game", host, port)
+    logger.info("单机服务已监听 ws://%s:%d/game（局域网=%s）", host, port, server.lan_mode)
+    if server.lan_mode:
+        await _start_discovery(server, port)
     if ready is not None:
         ready.set()
     async with srv:
@@ -783,7 +1268,7 @@ def start_background():
     if _server_thread is not None and _server_thread.is_alive():
         return "OK（服务已在运行）"
 
-    host = os.environ.get("SOLO_HOST", "127.0.0.1")
+    host = _env_host()
     port = int(os.environ.get("SOLO_PORT", "18763"))
     _server_ready.clear()
     _server_error = None
@@ -815,10 +1300,8 @@ def start_background():
 def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    host = os.environ.get("SOLO_HOST", "127.0.0.1")
-    port = int(os.environ.get("SOLO_PORT", "18763"))
     try:
-        asyncio.run(run_server(host, port))
+        asyncio.run(run_server())
     except KeyboardInterrupt:
         pass
 
