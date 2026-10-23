@@ -9,8 +9,8 @@ public partial class GameCanvas {
     private bool hasCapturedDefaultHandCardsContainerPosition;
 
     // 左手家副露列沿「FrontDirection」朝屏幕下方生长，实测右缘约在画布 316 单位处，
-    // 手牌从 269 起排会压住它；这里给手牌留出左侧安全带。
-    private const float HandLeftGuardX = 350f;
+    // 手牌从 269 起排会压住它；350 仍嫌不够，再加宽到 380 彻底让开。
+    private const float HandLeftGuardX = 380f;
     // 手牌右侧至少留出的边距，避免最右一张贴边裁切。
     private const float HandRightMargin = 24f;
 
