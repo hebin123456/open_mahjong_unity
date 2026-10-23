@@ -24,7 +24,6 @@ internal static class ShanghaiRuleBootstrap {
                 { CreateRoomKeys.PointerTips, true },
                 { CreateRoomKeys.Password, false },
                 { CreateRoomKeys.RandomSeed, false },
-                { CreateRoomKeys.TouristLimit, false },
                 { CreateRoomKeys.AllowSpectator, true },
             },
             GameStateFactory = () => new ShanghaiGameState(),

@@ -65,7 +65,6 @@ public partial class CreatePanel {
         Help(CuoheTypeDropdown, cuoheHelp);
         Help(CuoheTypePanel.transform, cuoheHelp);
         Help(passwordToggle, "设置密码：开启后须设置房间密码");
-        Help(TouristLimitToggle, "限制游客：开启后不允许游客加入房间。");
         Help(AllowSpectatorToggle, "允许观战：其他玩家可以旁观本房间的对局，延迟180秒。");
         Help(ClaimProtectionToggle, "鸣牌保护：可吃、碰、杠的玩家立即看到弃牌，其他玩家稍后看到；无人可鸣牌或有人可和牌时不保护。房间中有机器人时自动停用，移除全部机器人后恢复所选设置。关闭后所有玩家同步看到弃牌。");
         Help(TacticalCallToggle, "战术鸣牌：战术鸣牌是一种以更高优先级操作碰断别人吃牌的战术行为，战术鸣牌的具体规则在不同规则中有不同的定义，<link=\"tactical-call\"><color=#FFC574><u>点击此处</u></color></link>查看战术鸣牌的详细说明");

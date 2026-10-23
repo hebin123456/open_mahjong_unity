@@ -17,7 +17,6 @@ internal static class ChangshaLobby {
             { CreateRoomKeys.PointerTips, true },
             { CreateRoomKeys.Password, false },
             { CreateRoomKeys.RandomSeed, false },
-            { CreateRoomKeys.TouristLimit, false },
             { CreateRoomKeys.AllowSpectator, true },
             { CreateRoomKeys.TacticalCall, false },
             { CreateRoomKeys.CsOpenKongCount, 2 },

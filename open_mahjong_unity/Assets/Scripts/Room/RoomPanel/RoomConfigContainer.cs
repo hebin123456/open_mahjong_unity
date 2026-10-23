@@ -327,10 +327,6 @@ public class RoomConfigContainer : MonoBehaviour {
                 displayName = "密码";
                 displayValue = FormatHasPassword(roomInfo.has_password);
                 return true;
-            case "tourist_limit":
-                displayName = "允许游客";
-                displayValue = roomInfo.tourist_limit ? "否" : "是";
-                return true;
             case "hepai_limit":
                 if (roomInfo.room_rule == "shanghai") {
                     if (roomInfo.sub_rule == "shanghai/qinghunpeng") return false;

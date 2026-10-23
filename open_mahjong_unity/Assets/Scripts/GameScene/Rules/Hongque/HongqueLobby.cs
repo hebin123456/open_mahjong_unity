@@ -16,7 +16,6 @@ internal static class HongqueLobby {
             { CreateRoomKeys.PointerTips, true },
             { CreateRoomKeys.Password, false },
             { CreateRoomKeys.RandomSeed, false },
-            { CreateRoomKeys.TouristLimit, false },
             { CreateRoomKeys.HepaiWay, 0 },
         };
     }

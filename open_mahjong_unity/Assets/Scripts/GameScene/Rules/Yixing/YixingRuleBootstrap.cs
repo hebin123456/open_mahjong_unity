@@ -17,8 +17,7 @@ internal static class YixingRuleBootstrap {
             CreateRoomDefaults = new Dictionary<string, object> {
                 { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
                 { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
-                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false },
-                { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
+                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.AllowSpectator, true },
                 { SevenPairsKey, false },
             },
             GameStateFactory = () => new YixingGameState(), OutboundChannel = "yixing",

@@ -80,6 +80,11 @@ public class RoomListPanel : MonoBehaviour {
             NotificationManager.Instance.ShowTip("tips",false,"房间ID不能为空");
             return;
         }
+        if (ConfigManager.SoloMode) {
+            // 只做局域网对战：按房号广播搜索房主主机并直连加入，不再依赖局域网房间列表。
+            LanRoomBrowser.JoinRoomById(RoomIdInput.text);
+            return;
+        }
         RoomNetworkManager.Instance.JoinRoom(RoomIdInput.text, RoomIdInput.text);
     }
 

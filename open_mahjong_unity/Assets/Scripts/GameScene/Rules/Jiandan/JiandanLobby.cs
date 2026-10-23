@@ -12,7 +12,6 @@ internal static class JiandanLobby {
             { CreateRoomKeys.PointerTips, true },
             { CreateRoomKeys.Password, false },
             { CreateRoomKeys.RandomSeed, false },
-            { CreateRoomKeys.TouristLimit, false },
             { CreateRoomKeys.AllowSpectator, true },
         };
     }

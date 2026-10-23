@@ -30,7 +30,7 @@ internal static class HangzhouRuleBootstrap {
             { CreateRoomKeys.SubRule, 0 }, { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
             { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
             { CreateRoomKeys.TacticalCall, true },
-            { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
+            { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.AllowSpectator, true },
         };
         if (baotouRequiredSwitch) createRoomDefaults[CreateRoomKeys.BaotouRequired] = false;
         if (allowNegativeSwitch) createRoomDefaults[CreateRoomKeys.AllowNegative] = false;

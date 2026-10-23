@@ -16,8 +16,7 @@ internal static class GuizhouRuleBootstrap {
             CreateRoomDefaults = new Dictionary<string, object> {
                 { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
                 { CreateRoomKeys.TacticalCall, true }, { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
-                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false },
-                { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
+                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.AllowSpectator, true },
             },
             GameStateFactory = () => new GuizhouGameState(), OutboundChannel = "guizhou",
             Tingpai = GuizhouShape.Waiting,

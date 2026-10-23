@@ -102,15 +102,15 @@ public class SoloDemoController : MonoBehaviour {
     }
 
     private void DrawOverlay() {
-        // 对局/观战中不显示；局域网浏览器窗口展开时避让（它铺满左上区域）
-        if (GameSessionGuard.HasExclusiveSession || LanRoomBrowser.BrowserWindowVisible) return;
+        // 对局/观战中不显示
+        if (GameSessionGuard.HasExclusiveSession) return;
         if (body == null) {
             int size = Mathf.Max(20, Screen.height / 52);
             body = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = false };
         }
         float h = body.fontSize * 2.6f;
-        // 第一行是诊断面板按钮、第二行是局域网房间按钮，这里排第三行
-        float y = 8f + (h + 6f) * 2f;
+        // 第一行是诊断面板按钮，这里排第二行（局域网房间按钮已随按房号加入改造移除）
+        float y = 8f + h + 6f;
         if (generating) {
             GUI.Box(new Rect(8, y, Mathf.Max(260, body.fontSize * 12), h), GUIContent.none);
             GUI.Label(new Rect(16, y + h * 0.18f, body.fontSize * 11, h), "生成演示牌局中…");

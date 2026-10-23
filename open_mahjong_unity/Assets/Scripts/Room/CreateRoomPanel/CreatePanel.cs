@@ -538,7 +538,11 @@ public partial class CreatePanel : MonoBehaviour {
         if (pointerTipsToggle != null) pointerTipsToggle.gameObject.SetActive(visible.ContainsKey(CreateRoomKeys.PointerTips));
         if (countTipsToggle != null) countTipsToggle.gameObject.SetActive(visible.ContainsKey(CreateRoomKeys.CountTips));
         if (AllowSpectatorToggle != null) AllowSpectatorToggle.gameObject.SetActive(visible.ContainsKey(CreateRoomKeys.AllowSpectator));
-        if (TouristLimitToggle != null) TouristLimitToggle.gameObject.SetActive(visible.ContainsKey(CreateRoomKeys.TouristLimit));
+        // 只做局域网对战，「限制游客」选项整体下线：隐藏开关并恒以关闭状态随请求发送。
+        if (TouristLimitToggle != null) {
+            TouristLimitToggle.SetIsOnWithoutNotify(false);
+            TouristLimitToggle.gameObject.SetActive(false);
+        }
         RefreshDuplicateWallOptions();
     }
 

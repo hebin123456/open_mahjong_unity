@@ -19,7 +19,6 @@ internal static class RiichiLobby {
             { CreateRoomKeys.PointerTips, true },
             { CreateRoomKeys.Password, false },
             { CreateRoomKeys.RandomSeed, false },
-            { CreateRoomKeys.TouristLimit, false },
             { CreateRoomKeys.AllowSpectator, true },
             { CreateRoomKeys.SubRule, 0 },
             { CreateRoomKeys.Cuohe, false },

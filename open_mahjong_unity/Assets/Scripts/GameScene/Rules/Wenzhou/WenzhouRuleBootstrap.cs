@@ -16,8 +16,7 @@ internal static class WenzhouRuleBootstrap {
             CreateRoomDefaults = new Dictionary<string, object> {
                 { CreateRoomKeys.GameRound, 4 }, { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
                 { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false }, { CreateRoomKeys.PointerTips, true },
-                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false },
-                { CreateRoomKeys.TouristLimit, false }, { CreateRoomKeys.AllowSpectator, true },
+                { CreateRoomKeys.Password, false }, { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.AllowSpectator, true },
             },
             GameStateFactory = () => new WenzhouGameState(), OutboundChannel = "wenzhou",
             Tingpai = WenzhouGameState.Waiting, DescribeWaitingTile = WenzhouGameState.Describe,

@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import socket
 import struct
 import sys
@@ -59,7 +60,8 @@ BOT_USER_IDS = [1, 2, 3]
 # 演示局（教学回放）用 4 个机器人补满牌桌；uid 4 只在演示局出现，普通房间不会加到它。
 DEMO_BOT_IDS = [1, 2, 3, 4]
 
-# 单机房间标识：客户端建房/开局复用线上 `room/*` 协议，本地唯一房间用固定 id 表示。
+# 单机房间标识：客户端建房/开局复用线上 `room/*` 协议。房间号随机 3 位数字，
+# 局域网内已有相同房号时重新随机；SOLO_ROOM_ID 仅作为兜底占位。
 SOLO_ROOM_ID = "solo-hangzhou"
 SOLO_INSTANCE_ID = "solo-instance-1"
 BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特", 4: "演示助教"}
@@ -427,9 +429,91 @@ def _sync_room_view(server: SoloServer) -> None:
         room["host_name"] = _human_name(server, host_uid) if host_uid > 10 else BOT_USERNAMES.get(host_uid, "机器人")
 
 
+def _local_ip_set() -> set:
+    """收集本机所有 IPv4 地址，用于过滤探测时收到的本机应答。"""
+    ips = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    ips.add("127.0.0.1")
+    return ips
+
+
+async def _probe_lan_room_ids(timeout: float = 0.8) -> set:
+    """向局域网广播一次发现查询，收集其它主机已开房间的 room_id。
+
+    复用 _DiscoveryProtocol 的应答（OMU_SOLO JSON），本机自己的应答按源 IP 过滤。
+    任何失败都返回空集，只影响冲突重随，不阻塞建房。
+    """
+    loop = asyncio.get_running_loop()
+    local_ips = _local_ip_set()
+    found = set()
+    queue = asyncio.Queue()
+
+    class _ProbeProtocol(asyncio.DatagramProtocol):
+        def connection_made(self, transport):
+            try:
+                sock = transport.get_extra_info("socket")
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            except OSError:
+                pass
+
+        def datagram_received(self, data, addr):
+            try:
+                reply = json.loads(data.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                return
+            room = reply.get("room") or {}
+            if reply.get("magic") != LAN_DISCOVERY_REPLY_MAGIC or not room.get("in_room"):
+                return
+            if addr and addr[0] in local_ips:
+                return
+            rid = str(room.get("room_id") or "")
+            if rid:
+                queue.put_nowait(rid)
+
+        def error_received(self, exc):
+            pass
+
+    try:
+        transport, _ = await loop.create_datagram_endpoint(
+            _ProbeProtocol, local_addr=("0.0.0.0", 0), allow_broadcast=True)
+    except OSError as exc:
+        logger.warning("局域网房号探测 socket 创建失败（跳过冲突检测）: %s", exc)
+        return found
+    try:
+        transport.sendto(LAN_DISCOVERY_MAGIC, ("<broadcast>", LAN_DISCOVERY_PORT))
+        deadline = loop.time() + timeout
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            try:
+                found.add(await asyncio.wait_for(queue.get(), timeout=remaining))
+            except asyncio.TimeoutError:
+                break
+    finally:
+        transport.close()
+    return found
+
+
+async def _pick_room_id(server: SoloServer) -> str:
+    """房间号随机 3 位数字；局域网内已有相同房号则重新随机。"""
+    taken = await _probe_lan_room_ids() if server.lan_mode else set()
+    candidate = str(random.randint(100, 999))
+    for _ in range(60):
+        if candidate not in taken:
+            return candidate
+        candidate = str(random.randint(100, 999))
+    return candidate
+
+
 def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: str = "",
                      password: str = "", rule: str = HANGZHOU_RULE,
-                     sub_rule: str = HANGZHOU_SUB_RULE, opts: dict = None) -> dict:
+                     sub_rule: str = HANGZHOU_SUB_RULE, opts: dict = None,
+                     room_id: str = SOLO_ROOM_ID) -> dict:
     """客户端 RoomPanel 需要的 room_info。
 
     纯单机（lan_mode=False）保持旧行为：建房即放满机器人，人数一满「开始游戏」即可点击。
@@ -443,7 +527,7 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
     else:
         players = [host_uid] + (BOT_USER_IDS[:2] if sanma else BOT_USER_IDS)
     info = {
-        "room_id": SOLO_ROOM_ID,
+        "room_id": room_id,
         "instance_id": SOLO_INSTANCE_ID,
         "room_type": "custom",
         "room_rule": rule,
@@ -832,10 +916,12 @@ async def _handle_create_room(server: SoloServer, conn: WsConnection, message: d
             opts["detailed_config"] = detailed
     server._room_opts = opts
     server._room_password = str(message.get("password") or "")
+    room_id = await _pick_room_id(server)
     _build_room_info(server, uid, rounds, room_name=message.get("roomname", ""),
-                     password=server._room_password, rule=rule, sub_rule=sub_rule, opts=opts)
+                     password=server._room_password, rule=rule, sub_rule=sub_rule, opts=opts,
+                     room_id=room_id)
     logger.info("已创建单机房间 %s，规则=%s，玩家=%s，局域网=%s",
-                SOLO_ROOM_ID, rule, server._room["player_list"], server.lan_mode)
+                room_id, rule, server._room["player_list"], server.lan_mode)
     await _send(conn, {"type": "room/create_room_done", "success": True,
                        "message": "房间创建成功", "room_info": server._room})
 
@@ -998,7 +1084,8 @@ async def _handle_leave_room(server: SoloServer, conn: WsConnection, message: di
     room = server._room
     uid = conn.user_id
     done = {"type": "room/leave_room_done", "success": True, "message": "离开房间成功",
-            "room_id": message.get("room_id", SOLO_ROOM_ID), "room_instance_id": SOLO_INSTANCE_ID}
+            "room_id": (room or {}).get("room_id") or SOLO_ROOM_ID,
+            "room_instance_id": SOLO_INSTANCE_ID}
     if room is None or uid is None or uid not in room.get("player_list", []):
         await _send(conn, done)
         return

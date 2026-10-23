@@ -18,7 +18,7 @@ internal static class TuidaoRuleBootstrap {
                 { CreateRoomKeys.RoundTimer, 3 }, { CreateRoomKeys.StepTimer, 1 },
                 { CreateRoomKeys.Tips, true }, { CreateRoomKeys.CountTips, false },
                 { CreateRoomKeys.PointerTips, true }, { CreateRoomKeys.Password, false },
-                { CreateRoomKeys.RandomSeed, false }, { CreateRoomKeys.TouristLimit, false },
+                { CreateRoomKeys.RandomSeed, false },
                 { CreateRoomKeys.AllowSpectator, true },
                 { CreateRoomKeys.TacticalCall, true },
                 { GuangdongMilRules.MinimumScoreKey, true },

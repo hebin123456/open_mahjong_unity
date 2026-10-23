@@ -22,7 +22,7 @@ internal static class HongzhongRuleBootstrap {
             CreateRoomDefaults = new Dictionary<string,object> {
                 {CreateRoomKeys.SubRule,0},{CreateRoomKeys.GameRound,4},{CreateRoomKeys.RoundTimer,3},{CreateRoomKeys.StepTimer,1},
                 {CreateRoomKeys.Tips,true},{CreateRoomKeys.CountTips,false},{CreateRoomKeys.PointerTips,true},
-                {CreateRoomKeys.Password,false},{CreateRoomKeys.RandomSeed,false},{CreateRoomKeys.TouristLimit,false},{CreateRoomKeys.AllowSpectator,true},
+                {CreateRoomKeys.Password,false},{CreateRoomKeys.RandomSeed,false},{CreateRoomKeys.AllowSpectator,true},
             },
             GameStateFactory = () => new HongzhongGameState(), OutboundChannel = "hongzhong",
             Tingpai = q => GameRecordManager.Instance?.ShouldShowRecordTips() == true
