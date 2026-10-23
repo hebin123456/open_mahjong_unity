@@ -403,7 +403,10 @@ public partial class CreatePanel : MonoBehaviour {
                 visible.ContainsKey(CreateRoomKeys.BloodBattle) && !isSichuanXueLiu);
         }
         SetChangshaOptionsVisible(DefaultsOf(_ruleState).ContainsKey(CreateRoomKeys.CsBirdCount));
-        SetXiaoshanOptionsVisible(_ruleState == XiaoshanRuleBootstrap.RuleId);
+        // 萧山家族馆规（萧山/绍兴/义乌）共享爆头/负分/三摊承包与开局积分、倍率封顶选项
+        bool showXiaoshanOptions = HangzhouRuleBootstrap.IsXiaoshanFamilyRule(_ruleState);
+        SetXiaoshanOptionsVisible(showXiaoshanOptions);
+        if (showXiaoshanOptions) ApplyXiaoshanCapOptionsForRule(_ruleState);
         SetWallOptionsVisible(visible.ContainsKey(CreateRoomKeys.WallWan));
         SetToggleVisible(XiaoshanBaotouToggle, visible.ContainsKey(CreateRoomKeys.BaotouRequired));
         SetToggleVisible(XiaoshanNegativeToggle, visible.ContainsKey(CreateRoomKeys.AllowNegative));
@@ -646,7 +649,7 @@ public partial class CreatePanel : MonoBehaviour {
         CacheDefaultGameRoundLabels();
         bool showRound = DefaultsOf(_ruleState).ContainsKey(CreateRoomKeys.GameRound);
         bool isChangsha = _ruleState == "changsha";
-        bool usesFixedHandCount = _ruleState == "shanghai" || _ruleState == "zhongyong" || _ruleState == "guangdong" || _ruleState == GuizhouGameState.RuleId || _ruleState == HongzhongGameState.RuleId || _ruleState == HangzhouGameState.RuleId || _ruleState == XiaoshanRuleBootstrap.RuleId;
+        bool usesFixedHandCount = _ruleState == "shanghai" || _ruleState == "zhongyong" || _ruleState == "guangdong" || _ruleState == GuizhouGameState.RuleId || _ruleState == HongzhongGameState.RuleId || _ruleState == HangzhouGameState.RuleId || _ruleState == XiaoshanRuleBootstrap.RuleId || _ruleState == ShaoxingRuleBootstrap.RuleId || _ruleState == TaizhouRuleBootstrap.RuleId || _ruleState == YiwuRuleBootstrap.RuleId;
         if (!showRound) return;
         if (isChangsha && gameTime3Button != null && gameTime3Button.isOn) {
             SelectGameTime(4);
@@ -703,7 +706,9 @@ public partial class CreatePanel : MonoBehaviour {
     }
 
     private void CreateRoom() {
-        if (_ruleState == HangzhouGameState.RuleId || _ruleState == XiaoshanRuleBootstrap.RuleId) { CreateHangzhouRoom(); return; }
+        if (_ruleState == HangzhouGameState.RuleId || _ruleState == XiaoshanRuleBootstrap.RuleId
+            || _ruleState == ShaoxingRuleBootstrap.RuleId || _ruleState == TaizhouRuleBootstrap.RuleId
+            || _ruleState == YiwuRuleBootstrap.RuleId) { CreateHangzhouRoom(); return; }
         if (_ruleState == "guangdong") { CreateTuidaoRoom(); return; }
         if (_ruleState == "shanghai" && GetSelectedSubRule() != "shanghai/qiaoma" && GetSelectedSubRule() != "shanghai/qinghunpeng") {
             NotificationManager.Instance.ShowTip("create_room", false, "不支持的上海麻将子规则");

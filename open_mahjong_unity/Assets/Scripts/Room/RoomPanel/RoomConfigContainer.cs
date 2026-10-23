@@ -135,8 +135,10 @@ public class RoomConfigContainer : MonoBehaviour {
     }
 
     private static void AddDetailedConfig(RoomInfo roomInfo, List<KeyValuePair<string, string>> result) {
-        if (roomInfo.room_rule == XiaoshanRuleBootstrap.RuleId) {
-            // 萧山馆规摘要：建房时下发的开局积分与总倍率封顶
+        if (roomInfo.room_rule == XiaoshanRuleBootstrap.RuleId
+                || roomInfo.room_rule == ShaoxingRuleBootstrap.RuleId
+                || roomInfo.room_rule == YiwuRuleBootstrap.RuleId) {
+            // 翻财系变体馆规摘要：建房时下发的开局积分与总倍率封顶（绍兴无开局积分则不显示）
             if (TryReadDetailedInt(roomInfo.detailed_config, "starting_score", out int starting)) {
                 result.Add(new KeyValuePair<string, string>("开局积分", $"{starting}分"));
             }

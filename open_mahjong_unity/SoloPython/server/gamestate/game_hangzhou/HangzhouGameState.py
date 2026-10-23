@@ -168,6 +168,10 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
     def legal_discard_tiles(self, index):
         return legal_cuts(self, index)
 
+    def _next_dealer_on_win(self, winner):
+        """和牌后的下局庄家决策钩子；默认赢家做庄（杭州 MIL 连庄语义）。"""
+        return winner
+
     def advance_round_after_ready(self):
         if self.machine.phase != P.READY or self.match_finishing:
             raise RuntimeError("当前不能开始下一局")

@@ -229,11 +229,10 @@ public class ActionButton : MonoBehaviour {
         LayoutRebuilder.ForceRebuildLayoutImmediate(ActionBlockContenter as RectTransform);
     }
 
-    /// <summary>萧山翻财：白板（46）固定顶替翻出的财神本牌，返回本牌 id；非萧山或翻出白板时返回 0。</summary>
+    /// <summary>白板顶替计数（萧山/义乌翻财）：白板（46）固定顶替翻出的财神本牌，返回本牌 id；其它规则或翻出白板时返回 0。绍兴财神为翻牌加一，白板是普通牌，不参与顶替。</summary>
     private static int XiaoshanJokerIdentity() {
         var state = HangzhouGameState.Active;
-        if (state == null || string.IsNullOrEmpty(state.Info?.rule_version)
-                || !state.Info.rule_version.StartsWith("xiaoshan")) return 0;
+        if (state == null || !HangzhouRuleBootstrap.IsWhiteSubstituteVersion(state.Info?.rule_version)) return 0;
         int indicator = state.Info.joker_indicator;
         return indicator > 0 && indicator != HangzhouGameState.Joker ? indicator : 0;
     }

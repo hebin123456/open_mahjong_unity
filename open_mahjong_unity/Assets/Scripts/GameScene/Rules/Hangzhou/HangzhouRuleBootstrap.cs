@@ -46,7 +46,7 @@ internal static class HangzhouRuleBootstrap {
             DescribeWaitingTile = query => WaitTileHint.TsumoOnly("仅自摸"),
             TileBadgeText = tile => IsJokerTile(tile) ? "财" : null,
             FanNameText = (rule,label) => HangzhouFanText.Name(label),
-            FanValueText = (rule,label) => rule == XiaoshanRuleBootstrap.RuleId
+            FanValueText = (rule,label) => HangzhouFanText.UsesMultiplier(rule)
                 ? HangzhouFanText.Multiplier(label) : HangzhouFanText.Value(label),
             SettlementTotal = query => new SettlementTotalDisplay { FanText = $"基本分 {query.HuScore}分", ScoreText = query.WinnerPointDelta.HasValue ? $"{query.WinnerPointDelta.Value:+#;-#;0}分" : "" },
             ScoreboardFanText = query => $"基本分 {query.HuScore}分",
@@ -74,8 +74,27 @@ internal static class HangzhouRuleBootstrap {
         if (tiles != null && tiles.Length > 0) return tiles.Contains(tile);
         return tile == HangzhouGameState.Joker;
     }
+
+    /// <summary>
+    /// 翻财变体判定（按服务端下发的 rule_version 前缀）：萧山/绍兴/义乌每副翻出动态财神，
+    /// 杭州/台州恒白板。绍兴财神为翻牌加一，joker_tiles 下发的已是财神牌本身。
+    /// </summary>
+    internal static bool IsFlippedJokerVersion(string ruleVersion) => ruleVersion != null
+        && (ruleVersion.StartsWith("xiaoshan") || ruleVersion.StartsWith("shaoxing")
+            || ruleVersion.StartsWith("yiwu"));
+
+    /// <summary>白板顶替翻出财神本牌的变体：萧山/义乌；绍兴白板为普通牌，不参与顶替。</summary>
+    internal static bool IsWhiteSubstituteVersion(string ruleVersion) => ruleVersion != null
+        && (ruleVersion.StartsWith("xiaoshan") || ruleVersion.StartsWith("yiwu"));
+
+    /// <summary>萧山家族馆规（萧山/绍兴/义乌）：共享爆头/负分/三摊承包与开局积分、倍率封顶选项。</summary>
+    internal static bool IsXiaoshanFamilyRule(string rule) => HangzhouFanText.UsesMultiplier(rule);
 }
 internal static class HangzhouFanText {
+    /// <summary>番值按「倍率相乘」展示的规则：萧山/绍兴/义乌（家庭房规），杭州/台州按番数。</summary>
+    internal static bool UsesMultiplier(string rule) => rule == XiaoshanRuleBootstrap.RuleId
+        || rule == ShaoxingRuleBootstrap.RuleId || rule == YiwuRuleBootstrap.RuleId;
+
     public static string Name(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[3] : label; }
     public static string Value(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[2]+"番" : ""; }
     /// <summary>萧山按「倍率相乘」，番种标注为 ×N倍 而非 N番；+1 番附加条目（杠后和牌/对手飘）标注 +1番。</summary>

@@ -78,7 +78,7 @@ public sealed class HangzhouGameState : TurnBasedGameState {
     protected override void OnDoAction(Response response) { Accept(response.game_info?.hangzhou_info); Accept(response.do_action_info?.hangzhou_info); base.OnDoAction(response); }
     public static bool IsPiaoDiscard(TableAction action) => action != null && !action.Silent && !action.ConcealedDiscard && action.HasWord("cut") && action.ResolveCutTiles().Contains(Joker);
     protected override void OnBeforeActionPlayed(TableAction action) {
-        if (Info?.rule_version?.StartsWith("xiaoshan") == true) {
+        if (HangzhouRuleBootstrap.IsFlippedJokerVersion(Info?.rule_version)) {
             PlayXiaoshanDiscardVoice(action);
             return;
         }
@@ -87,13 +87,15 @@ public sealed class HangzhouGameState : TurnBasedGameState {
         SoundManager.Instance?.PlayActionSound(action.Seat,"hangzhou_piao");
         GameCanvas.Instance?.ShowActionDisplay(action.Seat,"hangzhou_piao",Session.RoomRule);
     }
-    /// <summary>萧山出牌方言报牌（男声）：申请帧发声、实际帧静默；暗弃不报，多张切报主牌。</summary>
+    /// <summary>翻财变体出牌方言报牌（男声）：申请帧发声、实际帧静默；暗弃不报，多张切报主牌；报牌财判用下发的动态财神（绍兴为翻牌加一后的财神）。</summary>
     private void PlayXiaoshanDiscardVoice(TableAction action) {
         if (action == null || action.Silent || action.ConcealedDiscard || !action.HasWord("cut")) return;
         int[] cuts = action.ResolveCutTiles();
         if (cuts.Length == 0) return;
         int tile = action.CutTile ?? cuts[cuts.Length - 1];
-        SoundManager.Instance?.PlayXiaoshanTileVoice(tile, Info.joker_indicator);
+        int joker = Info.joker_tiles != null && Info.joker_tiles.Length > 0
+            ? Info.joker_tiles[0] : Info.joker_indicator;
+        SoundManager.Instance?.PlayXiaoshanTileVoice(tile, joker);
     }
     /// <summary>杭州出牌报牌（与萧山共用同一套音源）：申请帧发声、实际帧静默；暗弃不报，多张切报主牌；财飘走专用报声。</summary>
     private void PlayHangzhouDiscardVoice(TableAction action) {

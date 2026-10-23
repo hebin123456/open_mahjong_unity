@@ -131,22 +131,31 @@ public static class TileIdOrder {
     }
 
     /// <summary>
-    /// 萧山翻财上下文：返回翻出的财神牌 id。对局取杭州引擎投影（rule_version 以 xiaoshan
-    /// 开头才翻财，杭州恒白板不在此列）；牌谱回放按 game_title 的 rule/sub_rule 与 joker_tiles
-    /// （服务端记录的 joker_tiles 恰为翻出的那张）。
+    /// 翻财变体上下文（萧山/绍兴/义乌）：返回财神牌 id。对局取杭州引擎投影的 joker_tiles
+    /// 首个（服务端下发的动态财神，绍兴已是翻牌加一后的财神牌）；杭州恒白板不在此列。
+    /// 牌谱回放按 game_title 的 rule/sub_rule 与 joker_tiles。
     /// </summary>
     private static bool TryGetXiaoshanJoker(out int joker) {
         joker = 0;
         HangzhouInfo info = HangzhouGameState.Active?.Info;
         if (info != null) {
-            if (info.joker_indicator > 0 && info.rule_version != null && info.rule_version.StartsWith("xiaoshan")) {
-                joker = info.joker_indicator;
-                return true;
+            if (HangzhouRuleBootstrap.IsFlippedJokerVersion(info.rule_version)) {
+                if (info.joker_tiles != null && info.joker_tiles.Length > 0) {
+                    joker = info.joker_tiles[0];
+                    return true;
+                }
+                // 旧版本兜底：萧山 joker_tiles 缺失时用翻出的指示牌（即财神）。
+                if (info.joker_indicator > 0) {
+                    joker = info.joker_indicator;
+                    return true;
+                }
             }
             return false;
         }
         if (TryGetRecordRule(out string recordRule, out string recordSubRule)
-                && (recordRule == "xiaoshan" || (recordSubRule != null && recordSubRule.StartsWith("xiaoshan")))) {
+                && (recordRule == "xiaoshan" || recordRule == "shaoxing" || recordRule == "yiwu"
+                    || (recordSubRule != null && (recordSubRule.StartsWith("xiaoshan")
+                        || recordSubRule.StartsWith("shaoxing") || recordSubRule.StartsWith("yiwu"))))) {
             Dictionary<string, object> gameTitle = GameRecordManager.Instance.gameRecord?.gameTitle;
             if (gameTitle != null && gameTitle.TryGetValue("joker_tiles", out object tilesObj) && tilesObj != null
                     && tilesObj is System.Collections.IEnumerable list && !(tilesObj is string)) {

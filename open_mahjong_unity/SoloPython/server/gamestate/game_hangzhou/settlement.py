@@ -36,7 +36,7 @@ class EndOfHand:
                                      changes=changes, score=quote.as_dict(), payment=payment.as_dict())
         p.is_hu, p.hu_order, p.has_draw_slot = True, 1, False
         self.hu_order_counter = 1
-        self.next_dealer = winner
+        self.next_dealer = self._next_dealer_on_win(winner)
         self._finish_round("win")
         self._event("hu_self", winner, tile=entry["tile"], win_source=source)
         return self._window(P.END)

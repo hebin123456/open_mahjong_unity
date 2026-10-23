@@ -218,7 +218,7 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
                                      payment=payment.as_dict())
         p.is_hu, p.hu_order, p.has_draw_slot = True, 1, False
         self.hu_order_counter = 1
-        self.next_dealer = winner
+        self.next_dealer = self._next_dealer_on_win(winner)
         self._finish_round("win")
         # 清零制（未开「积分小于 0 继续」）：任一玩家输光（0 分）即整场结束，不再开下一局。
         if self.starting_score and not self.allow_negative and any(q.score + c <= 0 for q, c in zip(self.player_list, changes)):

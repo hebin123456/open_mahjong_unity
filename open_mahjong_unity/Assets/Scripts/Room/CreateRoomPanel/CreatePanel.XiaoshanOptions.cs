@@ -11,6 +11,32 @@ public partial class CreatePanel {
 
     private static readonly int[] XiaoshanStartingScores = { 50, 100, 200 };
     private static readonly int[] XiaoshanTotalCaps = { 32, 64 };
+    private static readonly int[] ShaoxingTotalCaps = { 8, 16 };
+
+    /// <summary>绍兴「三番到底」默认 8 倍封顶，倍率档位与萧山/义乌（默认 64 倍）不同。</summary>
+    private static int[] TotalCapOptionsForRule(string rule) {
+        return rule == ShaoxingRuleBootstrap.RuleId ? ShaoxingTotalCaps : XiaoshanTotalCaps;
+    }
+
+    /// <summary>切换规则时按所选玩法重建倍率封顶档位（萧山/义乌 32/64，绍兴 8/16）。</summary>
+    private void ApplyXiaoshanCapOptionsForRule(string rule) {
+        if (XiaoshanTotalCapDropdown == null) return;
+        int[] caps = TotalCapOptionsForRule(rule);
+        int defaultIndex = Mathf.Clamp(caps.Length - 1, 0, caps.Length - 1);
+        if (XiaoshanTotalCapDropdown.options.Count == caps.Length) {
+            bool same = true;
+            for (int i = 0; i < caps.Length; i++) {
+                if (XiaoshanTotalCapDropdown.options[i].text != caps[i] + "倍") { same = false; break; }
+            }
+            if (same) return;
+        }
+        XiaoshanTotalCapDropdown.ClearOptions();
+        var labels = new List<string>();
+        foreach (int cap in caps) labels.Add(cap + "倍");
+        XiaoshanTotalCapDropdown.AddOptions(labels);
+        XiaoshanTotalCapDropdown.SetValueWithoutNotify(defaultIndex);
+        XiaoshanTotalCapDropdown.RefreshShownValue();
+    }
 
     /// <summary>运行时补齐萧山馆规选项（开局积分/倍率封顶）。
     /// 两个下拉框克隆通用模板后直接放进开关网格（ToggleContainer）作为网格单元，
@@ -119,8 +145,10 @@ public partial class CreatePanel {
     }
 
     private int GetXiaoshanTotalCap() {
-        return XiaoshanTotalCapDropdown != null
-            ? XiaoshanTotalCaps[Mathf.Clamp(XiaoshanTotalCapDropdown.value, 0, XiaoshanTotalCaps.Length - 1)]
-            : 64;
+        if (XiaoshanTotalCapDropdown == null) {
+            return _ruleState == ShaoxingRuleBootstrap.RuleId ? 8 : 64;
+        }
+        int[] caps = TotalCapOptionsForRule(_ruleState);
+        return caps[Mathf.Clamp(XiaoshanTotalCapDropdown.value, 0, caps.Length - 1)];
     }
 }

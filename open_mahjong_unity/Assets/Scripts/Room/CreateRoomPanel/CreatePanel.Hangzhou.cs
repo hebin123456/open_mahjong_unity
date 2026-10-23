@@ -58,7 +58,7 @@ public partial class CreatePanel {
     /// 不携带，服务端按默认关闭处理。
     /// </summary>
     private Dictionary<string, object> BuildHangzhouDetailedConfig() {
-        if (_ruleState != XiaoshanRuleBootstrap.RuleId) return null;
+        if (!HangzhouRuleBootstrap.IsXiaoshanFamilyRule(_ruleState)) return null;
         Dictionary<string, object> config = null;
         if (XiaoshanBaotouToggle != null && XiaoshanBaotouToggle.isOn)
             (config ??= new Dictionary<string, object>())["baotou_required"] = true;
@@ -81,8 +81,8 @@ public partial class CreatePanel {
             ClaimProtection=false, TacticalCall=TacticalCallToggle.isOn, EventId=_venueEventId,
             DetailedConfig=BuildHangzhouDetailedConfig(),
         };
-        if (_ruleState == XiaoshanRuleBootstrap.RuleId) {
-            // 萧山馆规：开局积分与总倍率封顶
+        if (HangzhouRuleBootstrap.IsXiaoshanFamilyRule(_ruleState)) {
+            // 萧山家族馆规：开局积分与总倍率封顶（绍兴档位 8/16，萧山/义乌 32/64）
             config.StartingScore = GetXiaoshanStartingScore();
             config.TotalCap = GetXiaoshanTotalCap();
         }

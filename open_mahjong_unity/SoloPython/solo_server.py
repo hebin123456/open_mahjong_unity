@@ -73,11 +73,25 @@ HANGZHOU_RULE = "hangzhou"
 HANGZHOU_SUB_RULE = "hangzhou/mil2025"
 XIAOSHAN_RULE = "xiaoshan"
 XIAOSHAN_SUB_RULE = "xiaoshan/xiaoshan"
+SHAOXING_RULE = "shaoxing"
+SHAOXING_SUB_RULE = "shaoxing/shaoxing"
+TAIZHOU_RULE = "taizhou"
+TAIZHOU_SUB_RULE = "taizhou/taizhou"
+YIWU_RULE = "yiwu"
+YIWU_SUB_RULE = "yiwu/yiwu"
 GUOBIAO_RULE = "guobiao"
 GUOBIAO_SUB_RULE = "guobiao/standard"
 RULE_ROOM_NAMES = {HANGZHOU_RULE: "单机杭州麻将", XIAOSHAN_RULE: "单机萧山麻将",
-                   GUOBIAO_RULE: "单机国标麻将"}
-RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将", GUOBIAO_RULE: "国标麻将"}
+                   SHAOXING_RULE: "单机绍兴麻将", TAIZHOU_RULE: "单机台州麻将",
+                   YIWU_RULE: "单机义乌麻将", GUOBIAO_RULE: "单机国标麻将"}
+RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将",
+               SHAOXING_RULE: "绍兴麻将", TAIZHOU_RULE: "台州麻将",
+               YIWU_RULE: "义乌麻将", GUOBIAO_RULE: "国标麻将"}
+
+# 复用杭州栈的大厅变体（萧山/绍兴/台州/义乌）→ 各自 sub_rule；
+# 客户端按 (room_rule, sub_rule) 解析规则清单，变体引擎 ROOM_RULE/SUB_RULE_ID 与此一致。
+VARIANT_SUB_RULES = {XIAOSHAN_RULE: XIAOSHAN_SUB_RULE, SHAOXING_RULE: SHAOXING_SUB_RULE,
+                     TAIZHOU_RULE: TAIZHOU_SUB_RULE, YIWU_RULE: YIWU_SUB_RULE}
 
 # 三种加机器人入口对应的机器人 id（1=摸切、2=牌效罗伯特、3=高性能罗伯特），
 # 用于房主按入口偏好选人；被占用的 id 自动跳过。
@@ -140,10 +154,16 @@ def _relabel_payload(payload: dict, rule: str, sub_rule: str) -> None:
 
 
 def _resolve_room_rule(message: dict):
-    """从建房请求中解析大厅规则；仅杭州/萧山/国标有效，其它一律回退杭州。"""
+    """从建房请求中解析大厅规则；仅杭州系与国标有效，其它一律回退杭州。"""
     rule = message.get("rule") or HANGZHOU_RULE
     if rule == XIAOSHAN_RULE:
         return XIAOSHAN_RULE, message.get("sub_rule") or XIAOSHAN_SUB_RULE
+    if rule == SHAOXING_RULE:
+        return SHAOXING_RULE, message.get("sub_rule") or SHAOXING_SUB_RULE
+    if rule == TAIZHOU_RULE:
+        return TAIZHOU_RULE, message.get("sub_rule") or TAIZHOU_SUB_RULE
+    if rule == YIWU_RULE:
+        return YIWU_RULE, message.get("sub_rule") or YIWU_SUB_RULE
     if rule == GUOBIAO_RULE:
         return GUOBIAO_RULE, message.get("sub_rule") or GUOBIAO_SUB_RULE
     return HANGZHOU_RULE, HANGZHOU_SUB_RULE
@@ -341,11 +361,11 @@ def _human_name(server: SoloServer, uid: int) -> str:
 def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
                      round_timer: int = 300, rule: str = HANGZHOU_RULE, sub_rule: str = None,
                      opts: dict = None) -> dict:
-    # 引擎按 room_rule/sub_rule 选择；萧山复用杭州栈，国标走独立引擎。
-    if rule == XIAOSHAN_RULE:
-        room_rule, sub = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
-    elif rule == GUOBIAO_RULE:
+    # 引擎按 room_rule/sub_rule 选择；杭州系变体复用杭州栈，国标走独立引擎。
+    if rule == GUOBIAO_RULE:
         room_rule, sub = GUOBIAO_RULE, sub_rule or GUOBIAO_SUB_RULE
+    elif rule in VARIANT_SUB_RULES:
+        room_rule, sub = rule, VARIANT_SUB_RULES[rule]
     else:
         room_rule, sub = HANGZHOU_RULE, HANGZHOU_SUB_RULE
     opts = opts or {}
@@ -380,11 +400,12 @@ def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 data[key] = opts[key]
-    elif rule == XIAOSHAN_RULE:
+    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
         # 萧山开局默认 1 秒节奏（其余玩法沿用 0.5 秒快速档）。
         data["bot_speed"] = "medium"
-        # 萧山馆规：开局积分、总倍率封顶与房规开关（如「有财神必须爆头」），
-        # 经 detailed_config 交引擎 normalize_config 校验。
+        # 馆规：开局积分、总倍率封顶与房规开关（如「有财神必须爆头」），
+        # 经 detailed_config 交引擎 normalize_config 校验。绍兴/义乌未传时
+        # 用各自引擎默认（绍兴 8 倍封顶、义乌 64 倍封顶）。
         detailed = {key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts}
         if isinstance(opts.get("detailed_config"), dict):
             detailed.update(opts["detailed_config"])
@@ -551,8 +572,8 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
         "round_timer": 300,
         "step_timer": 20,
         "is_game_running": False,
-        # 萧山开局默认 1 秒节奏，其余玩法 0.5 秒。
-        "bot_speed": "medium" if rule == XIAOSHAN_RULE else "fast",
+        # 翻财系变体（萧山/绍兴/义乌）开局默认 1 秒节奏，其余玩法 0.5 秒。
+        "bot_speed": "medium" if rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE) else "fast",
         "is_player_set_random_seed": False,
         "open_cuohe": False,
         "cuohe_type": 0,
@@ -575,8 +596,8 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 info[key] = opts[key]
-    elif rule == XIAOSHAN_RULE:
-        # 萧山馆规回填到房间信息，供客户端房间面板展示开局积分/倍率封顶
+    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
+        # 翻财系变体馆规回填到房间信息，供客户端房间面板展示开局积分/倍率封顶
         info["detailed_config"] = {
             key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
         }
@@ -705,6 +726,15 @@ def _new_game_state(server: SoloServer, room_data: dict, rule: str):
     if rule == XIAOSHAN_RULE:
         from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
         engine = XiaoshanGameState
+    elif rule == SHAOXING_RULE:
+        from server.gamestate.game_shaoxing.ShaoxingGameState import ShaoxingGameState
+        engine = ShaoxingGameState
+    elif rule == TAIZHOU_RULE:
+        from server.gamestate.game_taizhou.TaizhouGameState import TaizhouGameState
+        engine = TaizhouGameState
+    elif rule == YIWU_RULE:
+        from server.gamestate.game_yiwu.YiwuGameState import YiwuGameState
+        engine = YiwuGameState
     elif rule == GUOBIAO_RULE:
         from server.gamestate.game_guobiao.GuobiaoGameState import GuobiaoGameState
         from server.game_calculation.game_calculation_service import GameCalculationService
@@ -764,10 +794,10 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
 # ----------------------------------------------------------------------------
 def _build_demo_room_data(server: SoloServer, rule: str, rounds: int) -> dict:
     """演示牌桌：固定 4 个机器人座位，无真人连接，instant 速度快速跑完。"""
-    if rule == XIAOSHAN_RULE:
-        room_rule, sub = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
-    elif rule == GUOBIAO_RULE:
+    if rule == GUOBIAO_RULE:
         room_rule, sub = GUOBIAO_RULE, GUOBIAO_SUB_RULE
+    elif rule in VARIANT_SUB_RULES:
+        room_rule, sub = rule, VARIANT_SUB_RULES[rule]
     else:
         room_rule, sub = HANGZHOU_RULE, HANGZHOU_SUB_RULE
     return dict(
@@ -1112,8 +1142,8 @@ async def _handle_create_room(server: SoloServer, conn: WsConnection, message: d
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in message and message[key] is not None:
                 opts[key] = message[key]
-    elif rule == XIAOSHAN_RULE:
-        # 萧山：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
+    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
+        # 翻财系变体：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
         for key in XIAOSHAN_PASSTHROUGH_KEYS:
             if key in message and message[key] is not None:
                 opts[key] = message[key]

@@ -54,18 +54,19 @@ def current_request(state, index, *, for_record=False):
 def compute(request):
     """Worker-safe immutable output. Never receives a GameState or Player."""
     hand, melds = request.hand, request.melds
-    xiaoshan = request.rule_version.startswith("xiaoshan")
+    # 萧山家族（萧山/绍兴/义乌）均用动态财神 + 爆头过滤的听牌算法
+    family = request.rule_version.startswith(("xiaoshan", "shaoxing", "yiwu"))
     waits, by_cut = (), ()
     if len(hand) + 3 * len(melds) == 13:
         waits = _waits(tuple(sorted(hand)), melds, request.jokers, request.physicals,
-                       xiaoshan, request.baotou_required)
+                       family, request.baotou_required)
     elif len(hand) + 3 * len(melds) == 14:
         rows = []
         for tile in request.cuts:
             remaining = list(hand)
             remaining.remove(tile)
             rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers,
-                                      request.physicals, xiaoshan, request.baotou_required)))
+                                      request.physicals, family, request.baotou_required)))
         by_cut = tuple(rows)
     return waits, by_cut
 
