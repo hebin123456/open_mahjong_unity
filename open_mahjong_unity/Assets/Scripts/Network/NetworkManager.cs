@@ -708,6 +708,11 @@ public partial class NetworkManager : MonoBehaviour {
                 case "solo/demo_record":
                     SoloDemoController.HandleDemoMessage(response);
                     break;
+                // 单机新手教程：启动 ack 与行动指导提示
+                case "solo/start_tutorial":
+                case "solo/tutorial_hint":
+                    SoloTutorialController.HandleTutorialMessage(response);
+                    break;
                 // 数据相关消息交由 DataNetworkManager 处理
                 case "data/get_record_list":
                 case "data/get_record_by_id":

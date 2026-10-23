@@ -841,6 +841,212 @@ async def _handle_start_demo(server: SoloServer, conn: WsConnection, message: di
 
 
 # ----------------------------------------------------------------------------
+# 交互式新手教程：真人坐庄 + 固定教学牌墙 + 行动窗口推送提示（solo/start_tutorial）
+# ----------------------------------------------------------------------------
+TUTORIAL_BOTS = [1, 2, 3]  # 教程座位 1-3 固定为机器人，真人固定 0 号位（庄家）
+
+# 牌 id：万 11-19 / 筒 21-29 / 条 31-39 / 东南西北 41-44 / 中 45、白 46（财神）、发 47
+_TILE_NAMES = {41: "东风", 42: "南风", 43: "西风", 44: "北风", 45: "红中", 46: "白板", 47: "发财"}
+
+
+def _tile_display_name(tile) -> str:
+    if not isinstance(tile, int):
+        return str(tile)
+    if 11 <= tile <= 19:
+        return f"{tile - 10}万"
+    if 21 <= tile <= 29:
+        return f"{tile - 20}筒"
+    if 31 <= tile <= 39:
+        return f"{tile - 30}条"
+    return _TILE_NAMES.get(tile, str(tile))
+
+
+def _build_scenario_wall(h0, h1, h2, h3, draw_seq, fill_seed=1):
+    """把 4 家 13 张手牌与摸牌序列装配成 136 张完整牌墙。
+
+    发牌顺序由 initialize_round 固定：每轮庄家（0 号位）起每家拿 4 张，共 3 轮
+    （占墙前 48 张）；随后 5 张依次是庄/闲1 的第 13 张、庄家第 14 张（首摸）、
+    闲2/闲3 的第 13 张；此后 wall[53] 起为按座次的自然摸牌，杠补牌从墙尾取。
+    """
+    import random as _random
+    from server.game_calculation.hangzhou.rules import TILES as _HZ_TILES
+    for hand in (h0, h1, h2, h3):
+        if len(hand) != 13:
+            raise ValueError("教程手牌必须 13 张")
+    used = collections.Counter(h0) + collections.Counter(h1) + collections.Counter(h2) \
+        + collections.Counter(h3) + collections.Counter(draw_seq)
+    if any(n > 4 for n in used.values()):
+        raise ValueError("教程场景用牌超出 4 张上限")
+    wall = [None] * 136
+
+    def put(pos, tiles):
+        wall[pos:pos + len(tiles)] = list(tiles)
+
+    for row in range(3):
+        base = row * 16
+        put(base, h0[row * 4:row * 4 + 4])
+        put(base + 4, h1[row * 4:row * 4 + 4])
+        put(base + 8, h2[row * 4:row * 4 + 4])
+        put(base + 12, h3[row * 4:row * 4 + 4])
+    put(48, [h0[12], h1[12], draw_seq[0], h2[12], h3[12]])
+    planned = list(draw_seq[1:])  # 从 wall[53] 起按座次的摸牌
+    filler = [t for t in _HZ_TILES for _ in range(4 - used.get(t, 0))]
+    _random.Random(fill_seed).shuffle(filler)
+    wall[53:] = planned + filler
+    return wall
+
+
+# 教程机器人底牌：条子连张 + 字牌散张、全部单张——天然无法鸣牌，保证
+# 「他家打出的教学关键牌」按预期出现；庄家第 14 张之后按 draw_seq 依次摸牌。
+_BOT_A = [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 45]
+_BOT_B = [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 44, 46, 47]
+_BOT_C = [33, 34, 35, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47]
+
+TUTORIAL_SCENARIOS = {
+    # 学出牌：杂牌起手，随便打一张即可
+    "chu": dict(title="学会出牌",
+                hands=[[11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 43, 44], _BOT_A, _BOT_B, _BOT_C],
+                draws=[45, 46, 47, 21]),
+    # 学吃：手里 21、22 一对搭子，机器人摸进孤张 23 后必打，正好吃成 21-22-23
+    "chi": dict(title="学会吃",
+                hands=[[21, 22, 11, 41, 42, 43, 44, 45, 46, 47, 31, 32, 13], _BOT_A, _BOT_B, _BOT_C],
+                draws=[12, 46, 44, 23]),
+    # 学碰：手里 44 一对，机器人摸进孤张 44 后必打，点击「碰」成刻子
+    # （该局机器人手牌不能含 44，否则牌数超上限；用无 44 的变体）
+    "peng": dict(title="学会碰",
+                 hands=[[44, 44, 11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42],
+                        _BOT_A,
+                        [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 45, 46, 47],
+                        [33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 45, 46, 47]],
+                 draws=[43, 44, 21, 46]),
+    # 学杠：手里 11 三张，庄家第 14 张摸进第 4 张 11，直接暗杠
+    "angang": dict(title="学会杠",
+                   hands=[[11, 11, 11, 21, 31, 32, 33, 41, 42, 43, 45, 46, 47], _BOT_A, _BOT_B, _BOT_C],
+                   draws=[11, 46, 44, 21]),
+    # 学胡牌：三组刻子 + 对 5 万听牌，庄家第 14 张摸进 15 直接自摸
+    "hu": dict(title="学会胡牌",
+               hands=[[11, 11, 11, 12, 12, 12, 13, 13, 13, 14, 14, 14, 15], _BOT_A, _BOT_B, _BOT_C],
+               draws=[15, 46, 44, 21]),
+}
+
+
+def _new_tutorial_state(server: SoloServer, room_data: dict):
+    """实例化教程引擎：真人固定坐庄、首局用教学牌墙、行动窗口顺带推送新手提示。"""
+    from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
+
+    class TutorialHangzhouGameState(HangzhouGameState):
+        def _rotate_initial_dealer_randomly(self):
+            return  # 教程固定真人（0 号位）坐庄
+
+        def initialize_round(self, *, wall=None):
+            if wall is None:
+                walls = getattr(self, "tutorial_walls", None) or []
+                if walls:
+                    wall = walls.pop(0)  # 教学牌墙只用于第一小局，之后回退随机
+            super().initialize_round(wall=wall)
+
+        def _finish_round(self, reason):
+            # 教程只打一小局：无论胡牌还是流局，本局结束即整场结束。
+            self.match_finishing = True
+            self.ended_by = reason
+            self.machine.transition(P.END)
+
+        def open_action_window(self, window):
+            result = super().open_action_window(window)
+            self._publish_tutorial_hint(result)
+            return result
+
+        def _publish_tutorial_hint(self, window):
+            """真人座位出现可操作窗口时，推一条 solo/tutorial_hint 指导语。"""
+            try:
+                if self.game_server is None:
+                    return
+                mine = (window.get("actions") or {}).get(0)
+                if not mine or 0 not in self.waiting_players_list:
+                    return
+                message = self._tutorial_hint_text(window, mine)
+                if not message:
+                    return
+                connection = (self.game_server.user_id_to_connection or {}).get(self.player_list[0].user_id)
+                if connection is None or connection.websocket is None:
+                    return
+                asyncio.ensure_future(connection.websocket.send_json({
+                    "type": "solo/tutorial_hint",
+                    "message": message,
+                    "actions": list(mine),
+                    "action_tick": window.get("action_tick"),
+                }))
+            except Exception:
+                logger.warning("教程提示推送失败", exc_info=True)
+
+        def _tutorial_hint_text(self, window, actions):
+            status = window.get("status")
+            if status in ("waiting_hand_action", "onlycut_after_action"):
+                if "hu_self" in actions:
+                    return "自摸胡牌！点击「胡」按钮赢得这一局"
+                if "angang" in actions or "jiagang" in actions:
+                    return "凑齐了四张相同的牌可以「杠」！点击「杠」按钮（不想杠也可以点一张牌正常打出）"
+                return "轮到你出牌：点击手牌里要打出的那张牌"
+            if status == "waiting_action_after_cut":
+                tile = _tile_display_name(window.get("tile"))
+                if "gang" in actions:
+                    return f"他家打出{tile}，你手里有三张，可以「杠」！点击「杠」按钮"
+                if "peng" in actions:
+                    return f"他家打出{tile}，你手里有一对，可以「碰」成刻子！点击「碰」按钮"
+                if any(a in actions for a in ("chi_left", "chi_mid", "chi_right")):
+                    return f"上家打出{tile}，可以「吃」成顺子！点击「吃」按钮（有多种吃法时会再让你选）"
+                return "他家出了牌，不需要操作时点「过」跳过"
+            if status == "waiting_hangzhou_ten_winds":
+                return "连续打出字牌会触发「十风连打」，可以点「胡」结束，或继续出牌"
+            return None
+
+    return TutorialHangzhouGameState(server, room_data, None, None,
+                                     "solo-tutorial-" + uuid.uuid4().hex[:8])
+
+
+async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message: dict):
+    """solo/start_tutorial {scenario}：进入教学对局（真人坐庄、固定首局牌墙）。"""
+    game = server._game
+    if game is not None and getattr(game, "game_task", None) is not None and not game.game_task.done():
+        # 上一个教学局还在跑：直接换场景重开；其它对局（房间局等）不抢。
+        if not str(getattr(game, "gamestate_id", "")).startswith("solo-tutorial-"):
+            await _send(conn, {"type": "solo/start_tutorial", "success": False,
+                               "message": "请先结束当前对局再来学习"})
+            return
+        await _stop_solo_game(server)
+    uid = conn.user_id
+    if uid is None or uid <= 10:
+        await _send(conn, {"type": "solo/start_tutorial", "success": False, "message": "请先登录"})
+        return
+    scenario = TUTORIAL_SCENARIOS.get(str(message.get("scenario") or "chu")) or TUTORIAL_SCENARIOS["chu"]
+    player_list = [uid] + TUTORIAL_BOTS
+    room_data = dict(
+        room_id="solo-tutorial",
+        room_rule=HANGZHOU_RULE, sub_rule=HANGZHOU_SUB_RULE,
+        player_list=player_list,
+        player_settings=_player_settings_for(server, player_list),
+        game_round=1, round_timer=600, step_timer=60,
+        room_type="custom", tips=True, random_seed=0,
+        bot_speed="slow", bot_level="medium",
+    )
+    state = _new_tutorial_state(server, room_data)
+    hands = scenario["hands"]
+    state.tutorial_walls = [_build_scenario_wall(hands[0], hands[1], hands[2], hands[3],
+                                                 scenario["draws"], fill_seed=1)]
+    try:
+        from server.gamestate.public.ai.pacing import configure_bot_pacing
+        configure_bot_pacing(state, room_data)
+    except Exception as exc:      # 配置失败不影响教程
+        logger.warning("教程 configure_bot_pacing 失败: %s", exc)
+    server._game = state
+    server.gamestate_manager._game = state
+    state.game_task = asyncio.create_task(_run_game_loop(server, state))
+    _note("教程对局已启动 scenario=%s uid=%s" % (message.get("scenario"), uid))
+    await _send(conn, {"type": "solo/start_tutorial", "success": True,
+                       "message": "教程「%s」开始" % scenario["title"]})
+
+
+# ----------------------------------------------------------------------------
 # 消息分发
 # ----------------------------------------------------------------------------
 async def _send(conn: WsConnection, payload: dict):
@@ -1206,6 +1412,10 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
 
     if mtype == "solo/start_demo":
         await _handle_start_demo(server, conn, message)
+        return
+
+    if mtype == "solo/start_tutorial":
+        await _handle_start_tutorial(server, conn, message)
         return
 
     if mtype == "room/set_claim_protection":
