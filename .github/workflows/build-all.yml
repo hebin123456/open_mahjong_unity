@@ -94,8 +94,9 @@ jobs:
           versioning: None
           buildsPath: build
 
-      - name: Collect APK
+      - name: Collect & re-sign APK (v1+v2+v3)
         run: |
+          set -euo pipefail
           echo "Found .apk files:"
           find build -type f -iname '*.apk' -print
           APK="$(find build -type f -iname '*.apk' | sort | head -n 1)"
@@ -103,15 +104,32 @@ jobs:
             echo "::error::No .apk file found under build/"
             exit 1
           fi
-          cp "$APK" "$GITHUB_WORKSPACE/Android.apk"
           echo "APK: $APK ($(stat -c%s "$APK") bytes)"
-          sha256sum "$GITHUB_WORKSPACE/Android.apk"
-          # 打印签名证书指纹，便于与已安装版本比对排查签名冲突
-          if keytool -printcert -jarfile "$GITHUB_WORKSPACE/Android.apk" >/tmp/cert.txt 2>&1; then
-            grep -E 'SHA256|Owner|Valid' /tmp/cert.txt | head -4
-          else
-            echo "::warning::keytool could not read signing cert (v1 absent); APK may be v2-only signed"
+          # Unity/AGP 在 minSdk>=24 时默认只生成 v2/v3 签名、不带 v1(JAR)，
+          # 部分国产 ROM 的安装器会据此提示「未签名」。这里统一重签为 v1+v2+v3。
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          BT="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$BT" ] || [ ! -x "$BT/apksigner" ]; then
+            echo "::error::apksigner not found under Android SDK ($SDK)"
+            ls "$SDK" 2>/dev/null || true
+            exit 1
           fi
+          echo "Using $BT/apksigner"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          "$BT/apksigner" sign \
+            --ks /tmp/release.keystore \
+            --ks-key-alias "$KEYSTORE_ALIAS" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --key-pass "pass:$KEYSTORE_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$GITHUB_WORKSPACE/Android.apk" "$APK"
+          "$BT/apksigner" verify --verbose --print-certs "$GITHUB_WORKSPACE/Android.apk" | tee /tmp/verify.txt
+          # v1 必须存在，否则部分安装器仍会提示未签名
+          unzip -l "$GITHUB_WORKSPACE/Android.apk" | grep -Eq 'META-INF/[^/]+\.(RSA|EC|DSA)' \
+            || { echo "::error::v1 signature (META-INF) missing after re-sign"; exit 1; }
+          sha256sum "$GITHUB_WORKSPACE/Android.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -425,7 +443,7 @@ jobs:
             --title "单机版 + iOS 未签名包 ($TAG)" \
             --notes "自动构建 · run #${{ github.run_number }} · commit ${GITHUB_SHA:0:8} · Unity ${{ github.event.inputs.unityVersion || '6000.4.7f1' }}
 
-          - Android.apk：安卓安装包
+          - Android.apk：安卓安装包（v1+v2+v3 签名）
           - Windows.zip：Windows 解压运行
           - Linux.zip：Linux 解压后 chmod +x Linux && ./Linux 运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
