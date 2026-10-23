@@ -74,6 +74,9 @@ public class LanRoomBrowser : MonoBehaviour {
     }
 
     private bool visible;
+    /// <summary>浏览器窗口是否展开（教学演示按钮借此避让，避免 IMGUI 重叠）。</summary>
+    public static bool BrowserWindowVisible => instance != null && instance.visible;
+    private static LanRoomBrowser instance;
     private UdpClient udp;
     private float scanTimer;
     private readonly Dictionary<string, LanRoom> rooms = new Dictionary<string, LanRoom>();
@@ -90,7 +93,7 @@ public class LanRoomBrowser : MonoBehaviour {
         if (!ConfigManager.SoloMode) return;
         var go = new GameObject("LanRoomBrowser");
         DontDestroyOnLoad(go);
-        go.AddComponent<LanRoomBrowser>();
+        instance = go.AddComponent<LanRoomBrowser>();
     }
 
     private void Update() {

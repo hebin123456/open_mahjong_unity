@@ -56,11 +56,13 @@ def recent_events() -> str:
 HUMAN_USER_ID = 101
 HUMAN_USERNAME = "我"
 BOT_USER_IDS = [1, 2, 3]
+# 演示局（教学回放）用 4 个机器人补满牌桌；uid 4 只在演示局出现，普通房间不会加到它。
+DEMO_BOT_IDS = [1, 2, 3, 4]
 
 # 单机房间标识：客户端建房/开局复用线上 `room/*` 协议，本地唯一房间用固定 id 表示。
 SOLO_ROOM_ID = "solo-hangzhou"
 SOLO_INSTANCE_ID = "solo-instance-1"
-BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特"}
+BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特", 4: "演示助教"}
 
 # 大厅可选规则：萧山麻将完全复用杭州引擎，引擎内部恒按 hangzhou 处理；
 # 国标麻将使用独立的 GuobiaoGameState 引擎与 gamestate/GB/* 协议通道。
@@ -309,6 +311,7 @@ class SoloServer:
         self.calculation_service = None
         self.gamestate_manager = _GameStateManagerStub()
         self._game = None
+        self._demo_task = None  # 教学演示对局任务（与房间对局互不干扰）
         self._room = None        # 当前单机房间的 room_info；None 表示尚未建房
         self._room_opts = {}     # 建房时选定的开局参数（局数等）
         self._room_password = ""  # 建房密码（加入方需校验）
@@ -389,14 +392,18 @@ def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
 
 
 def _player_settings_for(server: SoloServer, players) -> dict:
-    """房间各座位的展示信息，客户端用其中的 username 渲染座位名（真人/机器人通吃）。"""
+    """房间各座位的展示信息，客户端用其中的 username 渲染座位名（真人/机器人通吃）。
+
+    键用 int 的 user_id：引擎按 ``player_settings.get(user_id)``（int）取昵称，
+    JSON 序列化后键自动变成字符串，客户端 ``Dictionary<string, UserSettings>`` 不受影响。
+    """
     settings = {}
     for uid in players:
         if uid > 10:
             name = _human_name(server, uid)
         else:
             name = BOT_USERNAMES.get(uid, f"机器人{uid}")
-        settings[str(uid)] = {
+        settings[int(uid)] = {
             "user_id": uid, "username": name,
             "title_id": 1, "profile_image_id": 1, "character_id": 1,
             "voice_id": 1, "avatar_frame_id": 0,
@@ -608,24 +615,34 @@ async def _run_game_loop(server: SoloServer, state) -> None:
                 pass
 
 
+def _new_game_state(server: SoloServer, room_data: dict, rule: str):
+    """按大厅规则实例化引擎：萧山复用杭州栈，国标走独立引擎并挂计算服务。"""
+    calculation = None
+    if rule == XIAOSHAN_RULE:
+        from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
+        engine = XiaoshanGameState
+    elif rule == GUOBIAO_RULE:
+        from server.gamestate.game_guobiao.GuobiaoGameState import GuobiaoGameState
+        from server.game_calculation.game_calculation_service import GameCalculationService
+        engine = GuobiaoGameState
+        calculation = GameCalculationService()  # 国标听牌/和牌校验依赖计算服务
+    else:
+        from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
+        engine = HangzhouGameState
+    # 国标引擎会调用 db_manager 存取段位/牌谱（单机空实现），杭州/萧山不查库传 None。
+    # gamestate_id 每局必须唯一：客户端按它区分新旧对局并重置询问时钟残留，
+    # 固定值会让「离开房间重建后再开局」沿用上一场的 tick 状态，真人出牌被服务端丢弃。
+    return engine(server, room_data, calculation,
+                  _DbStub() if rule == GUOBIAO_RULE else None,
+                  "solo-" + uuid.uuid4().hex[:8])
+
+
 async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
     async with server._start_lock:
         # 每次开局都先结束上一局，保证客户端总能收到一份新的 game_start
         # （否则大厅里再次点「开始游戏」会复用尚未结束的旧对局，界面毫无反应）。
         await _stop_solo_game(server)
         rule = server._label_rule
-        calculation = None
-        if rule == XIAOSHAN_RULE:
-            from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
-            engine, label = XiaoshanGameState, "萧山"
-        elif rule == GUOBIAO_RULE:
-            from server.gamestate.game_guobiao.GuobiaoGameState import GuobiaoGameState
-            from server.game_calculation.game_calculation_service import GameCalculationService
-            engine, label = GuobiaoGameState, "国标"
-            calculation = GameCalculationService()  # 国标听牌/和牌校验依赖计算服务
-        else:
-            from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
-            engine, label = HangzhouGameState, "杭州"
 
         room_data = _build_room_data(
             server,
@@ -633,12 +650,7 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             step_timer=int(opts.get("step_timer") or 20),
             round_timer=int(opts.get("round_timer") or 300),
             rule=rule, sub_rule=opts.get("sub_rule"), opts=opts)
-        # 国标引擎会调用 db_manager 存取段位/牌谱（单机空实现），杭州/萧山不查库传 None。
-        # gamestate_id 每局必须唯一：客户端按它区分新旧对局并重置询问时钟残留，
-        # 固定值会让「离开房间重建后再开局」沿用上一场的 tick 状态，真人出牌被服务端丢弃。
-        state = engine(server, room_data, calculation,
-                       _DbStub() if rule == GUOBIAO_RULE else None,
-                       "solo-" + uuid.uuid4().hex[:8])
+        state = _new_game_state(server, room_data, rule)
         try:
             from server.gamestate.public.ai.pacing import DEFAULT_BOT_SPEED, configure_bot_pacing, normalize_bot_speed
             room_data.setdefault("bot_speed", DEFAULT_BOT_SPEED)
@@ -658,9 +670,90 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
         server.gamestate_manager._game = state
         state.game_task = asyncio.create_task(_run_game_loop(server, state))
         logger.info("单机%s对局已启动 gamestate_id=%s 玩家=%s",
-                    label, state.gamestate_id, room_data["player_list"])
+                    RULE_LABELS.get(rule, rule), state.gamestate_id, room_data["player_list"])
         _note("已开局 gamestate_id=" + str(state.gamestate_id))
         return state
+
+
+# ----------------------------------------------------------------------------
+# 教学演示：4 机器人 instant 速度自动打一局，产出完整牌谱供客户端回放讲解
+# ----------------------------------------------------------------------------
+def _build_demo_room_data(server: SoloServer, rule: str, rounds: int) -> dict:
+    """演示牌桌：固定 4 个机器人座位，无真人连接，instant 速度快速跑完。"""
+    if rule == XIAOSHAN_RULE:
+        room_rule, sub = XIAOSHAN_RULE, XIAOSHAN_SUB_RULE
+    elif rule == GUOBIAO_RULE:
+        room_rule, sub = GUOBIAO_RULE, GUOBIAO_SUB_RULE
+    else:
+        room_rule, sub = HANGZHOU_RULE, HANGZHOU_SUB_RULE
+    return dict(
+        room_id=0 if rule == GUOBIAO_RULE else "solo-demo",
+        room_rule=room_rule,
+        sub_rule=sub,
+        player_list=list(DEMO_BOT_IDS),
+        player_settings=_player_settings_for(server, DEMO_BOT_IDS),
+        game_round=rounds,
+        round_timer=300,
+        step_timer=20,
+        room_type="custom",
+        tips=True,
+        random_seed=0,
+        bot_speed="instant",
+        bot_level="medium",
+    )
+
+
+async def _run_demo_loop(server: SoloServer, state, conn: WsConnection):
+    """跑完演示局后把完整牌谱（record_detail）回给请求方，客户端据此打开回放。"""
+    try:
+        await state.run_game_loop()
+        # complete_game_lifecycle 已把牌谱挂到 state._local_record_detail
+        detail = getattr(state, "_local_record_detail", None)
+        if detail is None:
+            _note("!! 演示牌谱缺失")
+            await _send(conn, {"type": "solo/demo_record", "success": False,
+                               "message": "演示牌谱生成失败"})
+            return
+        _note("演示牌局完成，牌谱已下发")
+        await _send(conn, {"type": "solo/demo_record", "success": True, "message": "",
+                           "record_detail": detail.dict(exclude_none=True)})
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.exception("演示对局异常退出")
+        _note("!! 演示对局异常: %s" % exc)
+        try:
+            await _send(conn, {"type": "solo/demo_record", "success": False,
+                               "message": "演示牌局生成失败: %s" % exc})
+        except Exception:
+            pass
+
+
+async def _handle_start_demo(server: SoloServer, conn: WsConnection, message: dict):
+    """solo/start_demo：后台跑一局 4 机器人演示局，结束后下发 solo/demo_record。"""
+    task = server._demo_task
+    if task is not None and not task.done():
+        await _send(conn, {"type": "solo/start_demo", "success": False,
+                           "message": "演示牌局正在生成中，请稍候"})
+        return
+    rule = message.get("rule")
+    if rule not in RULE_LABELS:  # 未指定或非法时按杭州演示
+        rule = HANGZHOU_RULE
+    try:
+        rounds = max(1, min(int(message.get("rounds") or 1), 4))
+    except (TypeError, ValueError):
+        rounds = 1
+    room_data = _build_demo_room_data(server, rule, rounds)
+    state = _new_game_state(server, room_data, rule)
+    try:
+        from server.gamestate.public.ai.pacing import configure_bot_pacing
+        configure_bot_pacing(state, room_data)
+    except Exception as exc:      # 配置失败不影响演示
+        logger.warning("演示 configure_bot_pacing 失败: %s", exc)
+    server._demo_task = asyncio.create_task(_run_demo_loop(server, state, conn))
+    _note("演示牌局已启动 rule=%s rounds=%d" % (rule, rounds))
+    await _send(conn, {"type": "solo/start_demo", "success": True,
+                       "message": "演示牌局生成中，请稍候"})
 
 
 # ----------------------------------------------------------------------------
@@ -1022,6 +1115,10 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
 
     if mtype == "room/sync_my_room":
         await _handle_sync_my_room(server, conn)
+        return
+
+    if mtype == "solo/start_demo":
+        await _handle_start_demo(server, conn, message)
         return
 
     if mtype == "room/set_claim_protection":

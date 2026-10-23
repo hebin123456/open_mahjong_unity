@@ -703,6 +703,11 @@ public partial class NetworkManager : MonoBehaviour {
                 case "room/leave_room_done":
                     RoomNetworkManager.Instance.HandleRoomMessage(response);
                     break;
+                // 单机教学演示：启动 ack 与演示牌谱回传
+                case "solo/start_demo":
+                case "solo/demo_record":
+                    SoloDemoController.HandleDemoMessage(response);
+                    break;
                 // 数据相关消息交由 DataNetworkManager 处理
                 case "data/get_record_list":
                 case "data/get_record_by_id":
