@@ -9,10 +9,6 @@ using UnityEngine;
 using System.Runtime.InteropServices;
 using UnityEngine.UI;
 
-/// <summary>挂了此标记的 Canvas 不参与 letterbox 的 Overlay→Camera 模式转换，
-/// 始终保持 Screen Space - Overlay 渲染在所有相机输出之上（如战绩浮层等全屏模态）。</summary>
-public sealed class LetterboxIgnoreCanvas : MonoBehaviour { }
-
 /// <summary>
 /// 固定宽高比窗口
 /// </summary>
@@ -74,23 +70,6 @@ public class FixedAspectRatio : MonoBehaviour {
     private Canvas[] letterboxRootCanvases;
     // 视口比例放宽到比 16:9 更方时，按比例放大透视相机竖直 FOV，保持水平视野与 16:9 构图一致。
     private readonly Dictionary<Camera, float> cameraBaseFov = new Dictionary<Camera, float>();
-
-    /// <summary>
-    /// 移动端 letterbox 目标比例：夹在 [4:3, 16:9] 内跟随屏幕。
-    /// 大折叠/平板展开态接近 1:1（1.1~1.3），若仍固定 16:9 画面只占屏幕约 2/3 高；
-    /// 收紧到 4:3 后视口利用率约 90%，16:9~20:9 主流直板机 clamp 后仍为 16:9，不受影响。
-    /// </summary>
-    private float LetterboxTargetAspect {
-        get {
-#if UNITY_ANDROID || UNITY_IOS
-            float screen = Screen.width / (float)Screen.height;
-            if (screen < 1f) screen = 1f / screen;
-            return Mathf.Clamp(screen, 4f / 3f, 16f / 9f);
-#else
-            return targetAspectRatio;
-#endif
-        }
-    }
 
     private struct CanvasState {
         public RenderMode renderMode;
@@ -246,11 +225,7 @@ public class FixedAspectRatio : MonoBehaviour {
     private void ApplyCameraViewport() {
         bool shouldLetterbox = ShouldLetterbox();
         float aspect = Screen.width / (float)Screen.height;
-#if UNITY_ANDROID || UNITY_IOS
-        if (aspect < 1f) aspect = 1f / aspect;
-#endif
-        float targetAspect = LetterboxTargetAspect;
-        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect, targetAspect) : new Rect(0f, 0f, 1f, 1f);
+        Rect targetRect = shouldLetterbox ? GetTargetViewport(aspect, targetAspectRatio) : new Rect(0f, 0f, 1f, 1f);
 
         currentCameraRect = targetRect;
         Camera[] cameras = GetTargetCameras();
@@ -258,7 +233,7 @@ public class FixedAspectRatio : MonoBehaviour {
             cameras[i].rect = currentCameraRect;
         }
 
-        ApplyCameraFov(targetAspect, cameras);
+        ApplyCameraFov(targetAspectRatio, cameras);
         ApplyCanvasViewport(shouldLetterbox);
         ApplyBlackBars(currentCameraRect);
     }
@@ -391,19 +366,13 @@ public class FixedAspectRatio : MonoBehaviour {
     }
 
     /// <summary>
-    /// 视口比例从 16:9 放宽到更方的 target 后，同一竖直 FOV 下水平视野变窄，
-    /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV 补齐水平视野；
-    /// 恢复 16:9 目标时还原原始 FOV。
-    /// 计算用相机实际视口比例（letterbox 后的 pixelRect），而不是 Screen 比例与
-    /// targetAspect 的换算值：设备上报尺寸偏差时旧写法可能直接跳过补偿，展开态
-    /// 左右两墩牌被裁出屏。
-    ///
-    /// 但只补齐水平视野还不够：近方形屏（letterbox target 收窄到 4:3）的视口
-    /// 宽度是整块屏宽，比折叠态 16:9 视口宽 25%，而这套公式下牌的屏幕尺寸
-    /// 正比于视口宽度，于是展开态牌比折叠态大 1.25 倍（用户反馈「牌桌越来
-    /// 越大」）。近方形横持视口再乘 1.26，把牌缩回折叠态基准（模拟验证：展开
-    /// 态可见世界 ±315x±236，牌与折叠态同大）；竖持视口以短边为宽、牌本就
-    /// 偏小，维持原状不再额外缩小。
+    /// 相机实际视口比 16:9 设计目标窄时（折叠屏展开内屏 1.08、平板 4:3 等），
+    /// 同一竖直 FOV 下水平视野变窄，牌桌左右两家被裁出屏。按
+    /// targetAspectRatio/视口比例 放大竖直 FOV，把水平视野补回 16:9 设计宽度，
+    /// 恢复完整牌桌全貌；视口比设计目标宽时（折叠态 21:10 横持）保持基准竖直
+    /// FOV，两侧多出的是环境画面，牌桌尺寸与折叠态一致。
+    /// 计算用相机实际视口比例（pixelRect），而不是 Screen 比例换算值：设备上报
+    /// 尺寸偏差时旧写法可能直接跳过补偿，展开态左右两墩牌被裁出屏。
     /// </summary>
     private void ApplyCameraFov(float targetAspect, Camera[] cameras) {
         if (targetAspect <= 0f) return;
@@ -417,13 +386,8 @@ public class FixedAspectRatio : MonoBehaviour {
             float viewportAspect = camera.pixelHeight > 0
                 ? camera.pixelWidth / (float)camera.pixelHeight
                 : targetAspect;
-            float fovScale = targetAspectRatio / Mathf.Max(0.01f, viewportAspect);
-            // 近方形横持视口（letterbox target 收窄到 4:3，如折叠屏展开态）比折叠态
-            // 16:9 视口宽约 25%，只补水平视野时牌会按视口宽度等比放大，需再缩回
-            // 折叠态基准；竖持（pixelWidth < pixelHeight）不缩。
-            if (viewportAspect < 1.6f && camera.pixelWidth >= camera.pixelHeight) {
-                fovScale *= 1.26f;
-            }
+            // 只在视口比设计目标窄时放大竖直 FOV，更宽的视口保持基准，牌桌不放大。
+            float fovScale = Mathf.Max(1f, targetAspectRatio / Mathf.Max(0.01f, viewportAspect));
             if (fovScale > 1.0001f) {
                 float tanHalf = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad) * fovScale;
                 camera.fieldOfView = 2f * Mathf.Atan(tanHalf) * Mathf.Rad2Deg;
@@ -448,7 +412,10 @@ public class FixedAspectRatio : MonoBehaviour {
         return IsZoomed(hwnd)
             || Mathf.Abs(Screen.width - Screen.height * targetAspectRatio) > 2f;
 #elif UNITY_ANDROID || UNITY_IOS
-        return true;
+        // 移动端不做 letterbox：URP 14 不支持 Camera.rect 视口裁剪，Overlay→Camera
+        // 模式转换有排序风险；折叠态宽视口保持基准 FOV（零回归），展开态/平板等
+        // 窄视口由 ApplyCameraFov 补齐水平视野，恢复牌桌全貌。
+        return false;
 #else
         return false;
 #endif
