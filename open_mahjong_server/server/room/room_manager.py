@@ -1625,6 +1625,13 @@ class RoomManager:
                     message="玩家不在房间中"
                 )
 
+            # 房主离开时按座位顺时针继承：unseat 前记下原房主的座位号
+            departing_host_seat = None
+            if player.user_id == room_data.get("host_user_id"):
+                seats_before = get_seats(room_data)
+                if player.user_id in seats_before:
+                    departing_host_seat = seats_before.index(player.user_id)
+
             # 更新房间信息
             if room_data.get("event_seating_pending"):
                 room_data.setdefault("event_seating_withdrawn", []).append(player.user_id)
@@ -1676,7 +1683,7 @@ class RoomManager:
                     message="房间已解散（仅剩机器人）"
                 )
 
-            self._sync_room_host(room_data)
+            self._sync_room_host(room_data, after_seat=departing_host_seat)
             
             # 广播房间信息
             await self._broadcast_room_info(room_id)
@@ -1979,13 +1986,30 @@ class RoomManager:
                 if bot_id <= 10 and bot_id not in room_data["player_list"]:
                     del room_data["player_settings"][bot_id]
 
-    def _sync_room_host(self, room_data: dict):
-        """按入房顺序选择仍在房内的第一位真人，座位位置不影响房主。"""
+    def _sync_room_host(self, room_data: dict, after_seat: Optional[int] = None):
+        """保持现任房主；房主已离开时按座位顺时针（seat_index 递增）选下一位真人。
+
+        after_seat 为离开者（原房主）的座位号：从它的顺时针下一位开始找，
+        而不是按入房顺序。房主仍在座位上时保持不变，避免结束对局/加机器人误换人。
+        """
         if room_data.get("room_rule") == "guizhou":
             from .guizhou_room import apply_bot_tactical_policy
             apply_bot_tactical_policy(room_data)
+        seats = get_seats(room_data)
         player_list = room_data.get("player_list") or []
-        host_user_id = next((user_id for user_id in player_list if user_id > 10), 0)
+        current = room_data.get("host_user_id") or 0
+        if current > 10 and current in seats and current in player_list:
+            host_user_id = current
+        else:
+            host_user_id = 0
+            seat_count = len(seats)
+            if seat_count:
+                start = 0 if after_seat is None else (after_seat + 1) % seat_count
+                for offset in range(seat_count):
+                    candidate = seats[(start + offset) % seat_count]
+                    if candidate > 10:
+                        host_user_id = candidate
+                        break
         room_data["host_user_id"] = host_user_id
         host_settings = room_data.get("player_settings", {}).get(host_user_id, {})
         room_data["host_name"] = host_settings.get("username", f"用户{host_user_id}") if host_user_id else ""

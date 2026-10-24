@@ -1,4 +1,4 @@
-"""掉线托管首个出牌询问保护测试。"""
+"""掉线托管：移交给该玩法现成的机器人（不使用摸切，也不使用高性能启发式）。"""
 
 import asyncio
 from types import SimpleNamespace
@@ -9,7 +9,6 @@ from .offline.offline_auto_action import (
     _OFFLINE_FIRST_CUT_READY,
     _OFFLINE_FIRST_CUT_TICK,
     offline_auto_action,
-    schedule_offline_auto_on_disconnect,
 )
 
 
@@ -24,81 +23,73 @@ def _make_player(user_id=11, username="u"):
     )
 
 
-def _make_state(player, tick=1):
-    return SimpleNamespace(
-        player_list=[player],
-        server_action_tick=tick,
-        room_rule="taiwan",
-    )
-
-
 def _set_protection_pending(player):
     setattr(player, _OFFLINE_FIRST_CUT_READY, True)
     setattr(player, _OFFLINE_FIRST_CUT_TICK, None)
 
 
-def test_disconnect_marks_first_cut_protection():
-    player = _make_player()
-    state = SimpleNamespace(player_list=[player])
-    schedule_offline_auto_on_disconnect(state, 11)
-    assert getattr(player, _OFFLINE_FIRST_CUT_READY) is True
-    assert getattr(player, _OFFLINE_FIRST_CUT_TICK) is None
-
-
-def test_first_ask_after_disconnect_skips_cut_then_next_ask_cuts():
+def test_offline_action_delegates_to_smart_bot():
+    """非 play_bot 玩法（如台湾）交给牌效机器人，而不是摸切。"""
     async def run():
         player = _make_player()
-        _set_protection_pending(player)
-        state = _make_state(player, tick=10)
+        state = SimpleNamespace(
+            player_list=[player], server_action_tick=1, room_rule="taiwan",
+            waiting_players_list=[0],
+        )
         with patch(
-            "server.gamestate.public.offline.offline_auto_action.get_ai_action",
+            "server.gamestate.public.ai.smart_bot_ai.smart_bot_action",
             new_callable=AsyncMock,
-        ) as act:
+        ) as bot:
             await offline_auto_action(state, 0, ["cut"], "waiting_hand_action")
-            act.assert_not_awaited()
-            assert getattr(player, _OFFLINE_FIRST_CUT_READY) is False
-            assert getattr(player, _OFFLINE_FIRST_CUT_TICK) == 10
-
-            # 同一次询问的重复派发同样跳过，避免与断开瞬间的任务竞态
-            await offline_auto_action(state, 0, ["cut"], "waiting_hand_action")
-            act.assert_not_awaited()
-
-            # 下一次询问恢复自动切牌
-            state.server_action_tick = 11
-            await offline_auto_action(state, 0, ["cut"], "waiting_hand_action")
-            act.assert_awaited_once()
+            bot.assert_awaited_once_with(state, 0, ["cut"], "waiting_hand_action")
 
     asyncio.run(run())
 
 
-def test_onlycut_after_action_first_ask_is_protected():
+def test_offline_action_uses_rule_play_bot():
+    """杭州家族等自带 play_bot 的玩法交给本族机器人，并等操作窗口建立。"""
     async def run():
         player = _make_player()
-        _set_protection_pending(player)
-        state = _make_state(player, tick=3)
-        state.claim_protection = False
-        with patch(
-            "server.gamestate.public.offline.offline_auto_action.get_ai_action",
-            new_callable=AsyncMock,
-        ) as act:
-            await offline_auto_action(state, 0, ["cut"], "onlycut_after_action")
-            act.assert_not_awaited()
-            state.server_action_tick = 4
-            await offline_auto_action(state, 0, ["cut"], "onlycut_after_action")
-            act.assert_awaited_once()
+        state = SimpleNamespace(
+            player_list=[player], server_action_tick=7, room_rule="hangzhou",
+            waiting_players_list=[0], action_dict={0: ["cut"]},
+        )
+        with patch("server.gamestate.game_hangzhou.bot.play_bot", new_callable=AsyncMock) as bot:
+            await offline_auto_action(state, 0, ["cut"], "waiting_hand_action")
+            bot.assert_awaited_once_with(state, 0, 7)
+
+    asyncio.run(run())
+
+
+def test_offline_action_skips_when_window_never_opens():
+    """窗口迟迟不建立时不再硬塞动作，交给原有超时兜底。"""
+    async def run():
+        player = _make_player()
+        state = SimpleNamespace(
+            player_list=[player], server_action_tick=1, room_rule="hangzhou",
+            waiting_players_list=[], action_dict={0: ["cut"]},
+        )
+        with patch("server.gamestate.game_hangzhou.bot.play_bot", new_callable=AsyncMock) as bot, \
+                patch(
+                    "server.gamestate.public.offline.offline_auto_action._WINDOW_WAIT_ATTEMPTS",
+                    2,
+                ):
+            await offline_auto_action(state, 0, ["cut"], "waiting_hand_action")
+            bot.assert_not_awaited()
 
     asyncio.run(run())
 
 
 def test_auto_cut_action_first_ask_protected_for_offline_player():
+    """摸切机器人给掉线玩家兜底时，首个出牌询问仍不自动切。"""
     async def run():
         player = _make_player()
         player.tag_list = ["offline"]
         _set_protection_pending(player)
-        state = _make_state(player, tick=5)
-        state.claim_protection = False
-        state.waiting_players_list = [0]
-        state._waiting_action_tick = 5
+        state = SimpleNamespace(
+            player_list=[player], server_action_tick=5, room_rule="taiwan",
+            claim_protection=False, waiting_players_list=[0], _waiting_action_tick=5,
+        )
         with patch(
             "server.gamestate.public.ai.auto_cut_ai.get_ai_action",
             new_callable=AsyncMock,
@@ -115,12 +106,12 @@ def test_auto_cut_action_first_ask_protected_for_offline_player():
 
 def test_auto_cut_action_bot_ignores_first_ask_protection():
     async def run():
-        player = _make_player(user_id=0, username="bot")
+        player = _make_player(user_id=1, username="bot")
         _set_protection_pending(player)
-        state = _make_state(player, tick=5)
-        state.claim_protection = False
-        state.waiting_players_list = [0]
-        state._waiting_action_tick = 5
+        state = SimpleNamespace(
+            player_list=[player], server_action_tick=5, room_rule="taiwan",
+            claim_protection=False, waiting_players_list=[0], _waiting_action_tick=5,
+        )
         with patch(
             "server.gamestate.public.ai.auto_cut_ai.get_ai_action",
             new_callable=AsyncMock,

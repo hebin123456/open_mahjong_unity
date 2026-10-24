@@ -198,3 +198,31 @@ def test_start_uses_seat_order_while_host_is_earliest_remaining_human(monkeypatc
         assert room["seat_list"] == before["seat_list"]
         await asyncio.sleep(0)
     asyncio.run(run())
+
+
+def test_host_succession_follows_clockwise_seat_not_arrival_order():
+    """入房顺序与座位顺序不一致时，房主离开由座位顺时针下一位真人接手。"""
+    async def run():
+        room_manager = manager()
+        room = room_manager.rooms["123"]
+        await room_manager.join_room("101", "123", "")
+        await room_manager.join_room("102", "123", "")
+        # 模拟换座后：102 在座1（顺时针下一位），101 在座2；入房顺序仍是 101 先
+        room["seat_list"] = [100, 102, 101, -1]
+        room["player_list"] = [100, 101, 102]
+        await room_manager.leave_room("100", "123")
+        assert room["host_user_id"] == 102
+    asyncio.run(run())
+
+
+def test_host_succession_skips_bot_and_wraps_around():
+    """顺时针遇到机器人跳过；到座位末尾回绕。"""
+    async def run():
+        room_manager = manager()
+        room = room_manager.rooms["123"]
+        await room_manager.join_room("101", "123", "")
+        room["seat_list"] = [100, 3, -1, 101]
+        room["player_list"] = [100, 101, 3]
+        await room_manager.leave_room("100", "123")
+        assert room["host_user_id"] == 101
+    asyncio.run(run())
