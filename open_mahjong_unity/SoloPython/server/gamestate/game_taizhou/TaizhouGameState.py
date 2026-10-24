@@ -112,6 +112,8 @@ class TaizhouGameState(TaizhouHandFlow, HangzhouGameState):
             return False
         if source == "self_draw" and not p.has_draw_slot:
             return False
+        if source != "self_draw" and tile in p.discard_win_lockout_tiles:
+            return False
         return self.score_win(index, source, tile) is not None
 
     def settle_win(self, winner, source, tile, payer=None):

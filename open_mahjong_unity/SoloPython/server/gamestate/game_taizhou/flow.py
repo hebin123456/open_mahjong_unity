@@ -7,6 +7,11 @@ from ...game_calculation.taizhou.rules import NUMBERS, WHITE
 
 
 class TaizhouHandFlow(HandFlow):
+    def begin_turn(self, index, discard_only=False):
+        # 过胡不胡只锁同一轮；轮到自己摸牌后恢复。
+        self.player_list[index].discard_win_lockout_tiles.clear()
+        return super().begin_turn(index, discard_only)
+
     def _has_chi_tile(self, hand, tile):
         joker = self.jokers[0]
         if tile == joker:
@@ -51,6 +56,9 @@ class TaizhouHandFlow(HandFlow):
         if winners:
             winner = min(winners, key=lambda i: (i - actor) % 4)
             return self.settle_win(winner, "discard", tile, payer=actor)
+        for index, data in responses.items():
+            if "hu" in window["actions"].get(index, []) and data["action_type"] != "hu":
+                self.player_list[index].discard_win_lockout_tiles.add(tile)
         claims = [i for i, data in responses.items() if data["action_type"] not in ("pass", "force_pass")]
         if not claims:
             return self.draw_for((actor + 1) % 4)
