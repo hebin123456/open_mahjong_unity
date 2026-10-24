@@ -97,6 +97,24 @@ VARIANT_SUB_RULES = {XIAOSHAN_RULE: XIAOSHAN_SUB_RULE, SHAOXING_RULE: SHAOXING_S
 # 用于房主按入口偏好选人；被占用的 id 自动跳过。
 BOT_PREFERRED_IDS = {"room/add_guobiao_heuristic_bot": 3, "room/add_smart_bot": 2, "room/add_bot": 1}
 
+# 三个机器人各有人设难度（杭州家族 AI）：
+#   1=机器人·摸切    → "moqie"  纯摸切流，不杠不鸣，永远打刚摸的牌（简单陪练）
+#   2=牌效罗伯特     → "medium" 标准牌效
+#   3=高性能罗伯特   → "hard"   按进张数严格决策
+# 房主在房间里显式改过机器人难度（room/set_bot_level）后统一覆盖人设；
+# 不在人设表内的机器人（如 4=演示助教）始终走房间级 bot_level。
+BOT_SEAT_LEVELS = {1: "moqie", 2: "medium", 3: "hard"}
+
+
+def _bot_levels_for_players(players, room=None):
+    """按座位生成机器人难度表；room 带 bot_level_locked（房主改过难度）时统一覆盖。"""
+    players = list(players or [])
+    if room is not None and room.get("bot_level_locked"):
+        from server.gamestate.public.ai.level import normalize_bot_level
+        uniform = normalize_bot_level(room.get("bot_level"))
+        return {i: uniform for i, uid in enumerate(players) if uid <= 10}
+    return {i: BOT_SEAT_LEVELS[uid] for i, uid in enumerate(players) if uid in BOT_SEAT_LEVELS}
+
 # 局域网房间发现：客户端广播该探测包，服务端回一包 JSON 房间摘要。
 LAN_DISCOVERY_PORT = 18764
 LAN_DISCOVERY_MAGIC = b"OMU_DISCOVER"
@@ -780,6 +798,9 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             state.bot_level = normalize_bot_level((server._room or {}).get("bot_level"))
         except Exception as exc:      # 配置失败不影响对局
             logger.warning("configure_bot_level 失败: %s", exc)
+        # 机器人人设难度（摸切/中等/困难；房主改过难度则统一覆盖）
+        state.bot_level_by_index = _bot_levels_for_players(
+            room_data.get("player_list") or [], server._room)
 
         server._game = state
         server.gamestate_manager._game = state
@@ -937,34 +958,48 @@ def _build_scenario_wall(h0, h1, h2, h3, draw_seq, fill_seed=1, flip=None):
     return wall
 
 
-# 教程机器人底牌：条子连张 + 字牌散张、全部单张——天然无法鸣牌，保证
-# 「他家打出的教学关键牌」按预期出现；庄家第 14 张之后按 draw_seq 依次摸牌。
+# 教程机器人底牌：条子连张 + 字牌散张、全部单张——天然无法鸣牌（更不会碰/吃
+# 真人打出的牌），保证教学流程不受机器人鸣牌干扰。
 _BOT_A = [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 45]
 _BOT_B = [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 44, 46, 47]
 _BOT_C = [33, 34, 35, 36, 37, 38, 39, 42, 43, 44, 45, 46, 47]
+# peng 场景变体：不含 43（43 要凑成真人手里的对子+教学牌）
+_BOT_A_NO43 = [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 42, 45, 47]
+_BOT_C_NO43 = [33, 34, 35, 36, 37, 38, 39, 41, 42, 44, 45, 46, 47]
 
+# ---------------------------------------------------------------------------
+# 场景设计说明（配合机器人人设后全部确定性触发）：
+#   座位 1 是摸切流机器人（永远打刚摸的牌）→ 它每轮弃什么完全由 draw_seq 决定；
+#   教学关键牌固定放在 draws[1]，即座位 1 首轮摸牌后必定打出，触发真人窗口。
+#   真人是庄家：draws[0] 是首摸。真人首打的牌对机器人无威胁
+#   （机器人底牌全单张，碰不成刻子；座位 1 摸切流从不鸣牌）。
+#   座位 2=中等、座位 3=困难，本轮教学中不参与关键触发。
 TUTORIAL_SCENARIOS = {
-    # 学出牌：杂牌起手，随便打一张即可
+    # 学出牌：杂牌起手 + 摸进红中，提示打一张即可（无胡、无杠）
     "chu": dict(title="学会出牌",
                 hands=[[11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 43, 44], _BOT_A, _BOT_B, _BOT_C],
                 draws=[45, 46, 47, 21]),
-    # 学吃：手里 21、22 一对搭子，机器人摸进孤张 23 后必打，正好吃成 21-22-23
+    # 学吃：真人手里 12、13（+对 14）；座位 3（真人的上家——吃只对上家）
+    # 起手全是搭子，摸进 14 是全场唯一孤张。上家座位 3 覆盖成摸切流
+    # （摸切必打刚摸的牌 → 必打 14；hard 档算分会认为财神邻张 47 更低分，
+    # 教学需要确定性触发）→ 真人吃成 1-2-3 万（或碰 14）。
+    # 真人首打 21（座位 3 只有 1 张 21 碰不成；座位 1 摸切流从不鸣牌）。
     "chi": dict(title="学会吃",
-                hands=[[21, 22, 11, 41, 42, 43, 44, 45, 46, 47, 31, 32, 13], _BOT_A, _BOT_B, _BOT_C],
-                draws=[12, 46, 44, 23]),
-    # 学碰：手里 44 一对，机器人摸进孤张 44 后必打，点击「碰」成刻子
-    # （该局机器人手牌不能含 44，否则牌数超上限；用无 44 的变体）
+                hands=[[13, 14, 14, 21, 22, 23, 31, 32, 33, 41, 42, 43, 46],
+                       _BOT_A, _BOT_B,
+                       [21, 22, 23, 24, 25, 26, 27, 28, 29, 45, 45, 46, 47]],
+                draws=[12, 11, 43, 14], seat_levels={3: "moqie"}),
+    # 学碰：真人手里 43 两张，座位 1 摸进 43（draws[1]）摸切打出 → 碰成刻子；
+    # 真人首摸 46（财神）后打掉，财神弃牌天然不可鸣，避免流程分叉
     "peng": dict(title="学会碰",
-                 hands=[[44, 44, 11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42],
-                        _BOT_A,
-                        [31, 32, 33, 34, 35, 36, 37, 38, 39, 41, 45, 46, 47],
-                        [33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 45, 46, 47]],
-                 draws=[43, 44, 21, 46]),
-    # 学杠：手里 11 三张，庄家第 14 张摸进第 4 张 11，直接暗杠
+                 hands=[[43, 43, 11, 12, 13, 21, 22, 23, 31, 32, 33, 46, 47],
+                        _BOT_A_NO43, _BOT_B, _BOT_C_NO43],
+                 draws=[46, 43, 44, 21]),
+    # 学杠：真人手里 11 三张（散牌断刻防自摸），首摸第 4 张 11 → 暗杠
     "angang": dict(title="学会杠",
-                   hands=[[11, 11, 11, 21, 31, 32, 33, 41, 42, 43, 45, 46, 47], _BOT_A, _BOT_B, _BOT_C],
+                   hands=[[11, 11, 11, 21, 31, 32, 41, 42, 43, 44, 45, 46, 47], _BOT_A, _BOT_B, _BOT_C],
                    draws=[11, 46, 44, 21]),
-    # 学胡牌：三组刻子 + 对 5 万听牌，庄家第 14 张摸进 15 直接自摸
+    # 学胡牌：三组刻子 + 15 单张，首摸第 2 张 15 → 自摸
     "hu": dict(title="学会胡牌",
                hands=[[11, 11, 11, 12, 12, 12, 13, 13, 13, 14, 14, 14, 15], _BOT_A, _BOT_B, _BOT_C],
                draws=[15, 46, 44, 21]),
@@ -1056,6 +1091,7 @@ class _TutorialHangzhouMixin:
                 return
             asyncio.ensure_future(connection.websocket.send_json({
                 "type": "solo/tutorial_hint",
+                "gamestate_id": self.gamestate_id,
                 "message": message,
                 "actions": list(mine),
                 "action_tick": window.get("action_tick"),
@@ -1167,6 +1203,7 @@ def _new_guobiao_tutorial_state(server: SoloServer, room_data: dict):
                     return
                 asyncio.ensure_future(connection.websocket.send_json({
                     "type": "solo/tutorial_hint",
+                    "gamestate_id": self.gamestate_id,
                     "message": message,
                     "actions": list(mine),
                 }))
@@ -1231,6 +1268,10 @@ async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message
             bot_speed="slow", bot_level="medium",
         )
         state = _new_tutorial_state(server, room_data, rule)
+        # 教程机器人用人设难度：摸切流不鸣牌，教学关键牌更稳定；
+        # 场景可按需覆盖个别座位（吃场景让上家用摸切流确定性打出孤张教学牌）
+        state.bot_level_by_index = _bot_levels_for_players(room_data["player_list"])
+        state.bot_level_by_index.update(scenario.get("seat_levels") or {})
         hands = scenario["hands"]
         # 萧山/义乌开局 pop 牌墙首张翻财神、绍兴在萧山之后再 pop 一张：
         # 用牺牲牌顶到 wall[53] 起保住 draw_seq 摸牌剧本。选 42/15 因五套场景中
@@ -1669,12 +1710,16 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
     if mtype == "room/set_bot_level":
         level = message.get("bot_level")
         if server._room is not None and isinstance(level, str) and level:
+            from server.gamestate.public.ai.level import normalize_bot_level
             server._room["bot_level"] = level
+            # 房主显式改难度：标记后新对局按统一档位覆盖机器人人设梯度
+            server._room["bot_level_locked"] = True
             # 对局进行中也即时生效；非法档位由 normalize 归一成默认。
             game = getattr(server, "_game", None)
             if game is not None:
-                from server.gamestate.public.ai.level import normalize_bot_level
                 game.bot_level = normalize_bot_level(level)
+                game.bot_level_by_index = {i: game.bot_level for i, p in enumerate(game.player_list)
+                                           if getattr(p, "is_bot", False)}
             await _broadcast_room_info_all(server)
         return
 

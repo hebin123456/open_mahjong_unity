@@ -15,6 +15,35 @@ from .actions import CHOWS, claim_tiles, kong_tiles, legal_cuts
 CHI_MID_OFFSET = {"chi_left": -1, "chi_mid": 0, "chi_right": 1}
 EASY_CLAIM_THRESHOLD, EASY_MAX_JOKERS = 18, 3
 MEDIUM_CLAIM_THRESHOLD, MEDIUM_MAX_JOKERS = 12, 2
+# 「机器人·摸切」的人设档位：不吃不碰不杠，能切刚摸的牌就切刚摸的牌。
+# 仅存在于 bot_level_by_index（座位人设），不会写入 state.bot_level。
+MOQIE_LEVEL = "moqie"
+
+
+def resolve_bot_level(state, index):
+    """座位难度：单机房间给三个机器人固定梯度（1=摸切流、2=中等、3=困难），
+    其余座位退回房间级 bot_level；房主显式改难度时会统一覆盖 bot_level_by_index。"""
+    per_seat = getattr(state, "bot_level_by_index", None) or {}
+    level = per_seat.get(index)
+    return level or getattr(state, "bot_level", DEFAULT_BOT_LEVEL)
+
+
+def _moqie_action(state, index, p, actions):
+    """摸切流：永远优先打刚摸进的那张；不杠、不鸣牌（含不暗杠）。
+    刚摸的牌受约束不可切（财宝包头条等）时，退回普通牌效挑一张合法牌。"""
+    if "cut" not in actions:
+        return dict(action_type="pass")
+    legal = legal_cuts(state, index)
+    last = p.hand_tiles[-1]
+    if last in legal:
+        return dict(action_type="cut", TileId=last, cutIndex=len(p.hand_tiles) - 1,
+                    cutClass=p.has_draw_slot)
+    jokers = tuple(getattr(state, "jokers", (JOKER,)))
+    plain = [t for t in sorted(legal) if t not in jokers] or sorted(legal)
+    tile = plain[0]
+    position = max(i for i, t in enumerate(p.hand_tiles) if t == tile)
+    return dict(action_type="cut", TileId=tile, cutIndex=position,
+                cutClass=p.has_draw_slot and position == len(p.hand_tiles) - 1)
 
 
 def _claim_code(action, tile):
@@ -47,10 +76,12 @@ def _connections(hand, jokers=(JOKER,)):
 def choose_action(state, index, actions):
     p = state.player_list[index]
     jokers = tuple(getattr(state, "jokers", (JOKER,)))
-    level = getattr(state, "bot_level", DEFAULT_BOT_LEVEL)
+    level = resolve_bot_level(state, index)
     for action in ("hu_self", "ready"):
         if action in actions:
             return dict(action_type=action)
+    if level == MOQIE_LEVEL:
+        return _moqie_action(state, index, p, actions)
     for action in ("angang", "jiagang"):
         if action in actions:
             return dict(action_type=action, target_tile=min(kong_tiles(state, index, action)))
@@ -124,7 +155,7 @@ async def play_bot(state, index, tick):
     players[index] = own
     locked = state.is_cai_locked(index)
     view = SimpleNamespace(player_list=players, tiles_list=[0] * len(state.tiles_list), jokers=tuple(state.jokers),
-                           bot_level=getattr(state, "bot_level", DEFAULT_BOT_LEVEL),
+                           bot_level=resolve_bot_level(state, index),
                            is_cai_locked=lambda _: locked, live_pending_window=dict(state.live_pending_window or {}))
     action = await asyncio.to_thread(choose_action, view, index, list(state.action_dict[index]))
     if action["action_type"] != "pass":
