@@ -22,6 +22,7 @@ public class SoloDemoController : MonoBehaviour {
     private bool generating;
     private float generatingSince;
     private GUIStyle body;
+    private GUIStyle buttonStyle;
 
     // 与服务端 RULE_LABELS 一致的六种玩法，每种玩法各自生成一局演示
     private static readonly string[][] Rules = {
@@ -132,8 +133,10 @@ public class SoloDemoController : MonoBehaviour {
             if (!generating) return;
         }
         if (body == null) {
-            int size = Mathf.Max(20, Screen.height / 52);
+            // 与新手教程保持同一尺寸，避免演示选择面板明显偏小。
+            int size = Mathf.Max(28, Screen.height / 26);
             body = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = false };
+            buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = size, wordWrap = false };
         }
         // 生成进度指示：原左下角入口按钮已移至顶栏「教学演示」
         if (generating) {
@@ -156,13 +159,13 @@ public class SoloDemoController : MonoBehaviour {
         GUI.Label(new Rect(px + 16, py + 10, pw - 32, h), "选择演示的玩法（4 个机器人自动对局）", body);
         float by = py + 10f + h + 8f;
         foreach (var rule in Rules) {
-            if (GUI.Button(new Rect(px + 16, by, pw - 32, h), rule[1])) {
+            if (GUI.Button(new Rect(px + 16, by, pw - 32, h), rule[1], buttonStyle)) {
                 pickerOpen = false;
                 StartDemo(rule[0]);
             }
             by += h + 8f;
         }
-        if (GUI.Button(new Rect(px + 16, by, pw - 32, h), "关闭")) {
+        if (GUI.Button(new Rect(px + 16, by, pw - 32, h), "关闭", buttonStyle)) {
             pickerOpen = false;
         }
     }

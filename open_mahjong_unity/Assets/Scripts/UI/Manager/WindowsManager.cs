@@ -79,8 +79,10 @@ public class WindowsManager : MonoBehaviour {
 
     public void ApplyStreamerModePanels() {
         bool showStreamerPanel = ConfigManager.Instance != null && StreamerModeHelper.IsEnabled;
-        GameObject chat = ResolveChatPanel();
+        // 聊天窗已停用：不再参与大厅/对局/牌谱的显隐切换。
+        // GameObject chat = ResolveChatPanel();
         GameObject streamer = ResolveStreamerModePanel();
+        /*
         if (chat != null) {
             // 不停用消息接收组件，避免对局期间的新消息触发停用对象上的滚动协程。
             chat.SetActive(true);
@@ -97,6 +99,7 @@ public class WindowsManager : MonoBehaviour {
                 events.SetSelectedGameObject(null);
             }
         }
+        */
         if (streamer != null) {
             streamer.SetActive(showStreamerPanel);
         }
@@ -177,6 +180,7 @@ public class WindowsManager : MonoBehaviour {
         off(eventPanel);
         off(friendPanel);
         off(gamePanel);
+        off(chatPanel);
         loginPanel.SetActive(true);
     }
 
