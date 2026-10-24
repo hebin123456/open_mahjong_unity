@@ -84,7 +84,11 @@ public class SoloTutorialController : MonoBehaviour {
                     inTutorial = false;
                     tutorialGameEntered = false;
                     hint = null;
-                    WindowsManager.Instance?.SwitchWindow("menu");
+                    // 服务端终止教学局是直接 cancel 任务、不发 game_end：必须走标准退场
+                    // 强制清理对局场景（IsGameActive、3D 牌面、gamestate_id、返回按钮），
+                    // 否则 HasExclusiveSession 残留会把教程/演示的选择面板每帧收起，
+                    // 回到主界面后就再也打不开了。
+                    PostGameNavigator.ExitToLobby(forceTeardown: true);
                 } else {
                     NotificationManager.Instance?.ShowTip("新手教程", false,
                         string.IsNullOrEmpty(response.message) ? "结束教程失败" : response.message);
