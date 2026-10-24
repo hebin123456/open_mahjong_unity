@@ -28,6 +28,8 @@ public partial class GameCanvas {
     private RectTransform canvasRect;
     // 场景原始摆位：每次适配都从它出发，保证折/展循环里钳制与让位重复应用不叠加
     private readonly Dictionary<GamePlayerPanel, Vector2> seatOriginalPositions = new Dictionary<GamePlayerPanel, Vector2>();
+    private RectTransform gamePanelRect;
+    private bool lastGamePanelActive = true;
 
     private RectTransform CanvasRect {
         get {
@@ -36,16 +38,26 @@ public partial class GameCanvas {
         }
     }
 
+    private bool TryGetGamePanelActive() {
+        if (gamePanelRect == null) gamePanelRect = transform.Find("GamePanel") as RectTransform;
+        return gamePanelRect != null && gamePanelRect.gameObject.activeInHierarchy;
+    }
+
     private void Update() {
         RectTransform rt = CanvasRect;
         if (rt == null) return;
         Vector2 size = rt.rect.size;
-        // 画布尺寸与上次适配时不同（含首帧从 0 变为实际值）即重新适配
+        // 触发条件：画布尺寸变化，或 GamePanel 刚激活——UiRectClamp 会跳过
+        // inactive 物体，展开态开机（画布尺寸此后不再变化）直接进对局时，
+        // 若只在尺寸变化时钳制，对局内所有固定件一次都不会被钳。
+        bool panelActive = TryGetGamePanelActive();
         if (Mathf.Abs(size.x - lastCanvasSize.x) < 0.5f
-            && Mathf.Abs(size.y - lastCanvasSize.y) < 0.5f) {
+            && Mathf.Abs(size.y - lastCanvasSize.y) < 0.5f
+            && panelActive == lastGamePanelActive) {
             return;
         }
         ApplyAdaptiveLayout(size);
+        lastGamePanelActive = panelActive;
     }
 
     private void ApplyAdaptiveLayout(Vector2 canvasSize) {

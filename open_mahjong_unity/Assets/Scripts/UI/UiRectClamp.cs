@@ -43,4 +43,28 @@ public static class UiRectClamp {
         float parentDx = parent.worldToLocalMatrix.MultiplyVector(worldDisp).x;
         rt.anchoredPosition += new Vector2(parentDx, 0f);
     }
+
+    /// <summary>
+    /// 展开态下比画布还宽的容器（房间页玩家面板行 1554、底部按钮行 1781，
+    /// 画布逻辑宽只有 ~1499）平移钳不住——两端怎么移都会溢。先等比缩小到
+    /// 可用宽（保持纵横比，1920 基线不缩放零回归），再平移钳回画布。
+    /// </summary>
+    public static void FitIntoCanvas(RectTransform rt, float margin = 8f) {
+        if (rt == null || !rt.gameObject.activeInHierarchy) return;
+        if (rt.anchorMin != rt.anchorMax) return;
+        Canvas canvas = rt.GetComponentInParent<Canvas>();
+        if (canvas == null) return;
+        RectTransform canvasRt = canvas.transform as RectTransform;
+        if (canvasRt == null) return;
+        Vector2 canvasSize = canvasRt.rect.size;
+        Vector2 size = rt.rect.size;
+        if (canvasSize.x <= 1f || size.x <= 0f || size.y <= 0f) return;
+
+        float avail = canvasSize.x - margin * 2f;
+        float scale = Mathf.Min(1f, avail / size.x);
+        if (scale < rt.localScale.x - 0.001f || scale > rt.localScale.x + 0.001f) {
+            rt.localScale = Vector3.one * scale;
+        }
+        ClampIntoCanvas(rt, margin);
+    }
 }
