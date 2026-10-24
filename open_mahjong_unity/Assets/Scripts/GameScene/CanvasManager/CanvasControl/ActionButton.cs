@@ -227,6 +227,8 @@ public class ActionButton : MonoBehaviour {
         }
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(ActionBlockContenter as RectTransform);
+        // 展开态画布窄时把候选块行（ContentSizeFitter 撑开后）钳回画布内
+        if (GameCanvas.Instance != null) GameCanvas.Instance.FitActionBlockContainerIntoCanvas();
     }
 
     /// <summary>白板顶替计数（萧山/义乌翻财）：白板（46）固定顶替翻出的财神本牌，返回本牌 id；其它规则或翻出白板时返回 0。绍兴财神为翻牌加一，白板是普通牌，不参与顶替。</summary>
@@ -329,6 +331,8 @@ public class ActionButton : MonoBehaviour {
 
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(ActionBlockContenter as RectTransform);
+        // 展开态画布窄时把候选块行（ContentSizeFitter 撑开后）钳回画布内
+        if (GameCanvas.Instance != null) GameCanvas.Instance.FitActionBlockContainerIntoCanvas();
     }
 
     // 生成吃牌候选子按钮：包含两张真实牌 ID（按值升序展示），点击回传对应 chiComboIndex
@@ -347,6 +351,8 @@ public class ActionButton : MonoBehaviour {
 
         Canvas.ForceUpdateCanvases();
         LayoutRebuilder.ForceRebuildLayoutImmediate(ActionBlockContenter as RectTransform);
+        // 展开态画布窄时把候选块行（ContentSizeFitter 撑开后）钳回画布内
+        if (GameCanvas.Instance != null) GameCanvas.Instance.FitActionBlockContainerIntoCanvas();
     }
 
 }

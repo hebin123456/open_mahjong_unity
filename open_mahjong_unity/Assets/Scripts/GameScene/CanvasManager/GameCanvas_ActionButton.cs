@@ -424,6 +424,13 @@ public partial class GameCanvas : MonoBehaviour {
             }
         }
 
+        // 展开态画布窄于按钮行（场景按 1920 摆位）时把行钳回画布内，
+        // 并让倒计时避开按钮行；自由模式按钮栏在右下角自管布局，不参与。
+        if (!freeMode) {
+            FitActionHostIntoCanvas(ActionButtonHost);
+            ResolveTimerPlacement();
+        }
+
         // 播放操作按钮出现音效：只数本次新建的询问按钮。
         // 单独出现常驻槽位按钮时保持安静；被 Destroy 的旧按钮本帧仍在 childCount 里，不能拿它判断。
         if (createdRegularButtonCount > 0 && !freeMode) {

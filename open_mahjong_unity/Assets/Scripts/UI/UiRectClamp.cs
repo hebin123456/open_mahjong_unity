@@ -45,6 +45,50 @@ public static class UiRectClamp {
     }
 
     /// <summary>
+    /// 取 RectTransform 在所在 Canvas 本地坐标系（rect 坐标，原点在画布左下、
+    /// y 向上）下的包围矩形。UI 层级链无旋转，尺寸用 lossyScale 比值换算、
+    /// 中心用 world 矩阵换算，供重叠检测与定向让位使用。
+    /// </summary>
+    public static bool TryGetRectInCanvas(RectTransform rt, out Rect rect, out Vector2 canvasSize) {
+        rect = default;
+        canvasSize = Vector2.zero;
+        if (rt == null) return false;
+        Canvas canvas = rt.GetComponentInParent<Canvas>();
+        if (canvas == null) return false;
+        RectTransform canvasRt = canvas.transform as RectTransform;
+        if (canvasRt == null) return false;
+        canvasSize = canvasRt.rect.size;
+        Vector2 canvasLossy = canvasRt.lossyScale;
+        if (canvasSize.x <= 1f || Mathf.Abs(canvasLossy.x) < 1e-4f || Mathf.Abs(canvasLossy.y) < 1e-4f) return false;
+        Rect local = rt.rect;
+        if (local.width <= 0f || local.height <= 0f) return false;
+        Vector2 size = new Vector2(
+            local.width * Mathf.Abs(rt.lossyScale.x / canvasLossy.x),
+            local.height * Mathf.Abs(rt.lossyScale.y / canvasLossy.y));
+        Vector2 rectMin = -Vector2.Scale(canvasRt.pivot, canvasSize);
+        Vector2 center = (Vector2)canvasRt.worldToLocalMatrix.MultiplyPoint3x4(rt.TransformPoint(local.center)) - rectMin;
+        rect = new Rect(center - Vector2.Scale(size, rt.pivot), size);
+        return true;
+    }
+
+    public static bool TryGetRectInCanvas(RectTransform rt, out Rect rect) {
+        return TryGetRectInCanvas(rt, out rect, out _);
+    }
+
+    /// <summary>把画布坐标系下的位移换算回 anchoredPosition 增量（横纵向通用）。</summary>
+    public static void MoveByCanvasDelta(RectTransform rt, Vector2 canvasDelta) {
+        if (rt == null) return;
+        if (Mathf.Abs(canvasDelta.x) < 0.01f && Mathf.Abs(canvasDelta.y) < 0.01f) return;
+        Canvas canvas = rt.GetComponentInParent<Canvas>();
+        if (canvas == null) return;
+        RectTransform canvasRt = canvas.transform as RectTransform;
+        RectTransform parent = rt.parent as RectTransform;
+        if (canvasRt == null || parent == null) return;
+        Vector3 worldDisp = canvasRt.TransformVector(new Vector3(canvasDelta.x, canvasDelta.y, 0f));
+        rt.anchoredPosition += (Vector2)parent.worldToLocalMatrix.MultiplyVector(worldDisp);
+    }
+
+    /// <summary>
     /// 展开态下比画布还宽的容器（房间页玩家面板行 1554、底部按钮行 1781，
     /// 画布逻辑宽只有 ~1499）平移钳不住——两端怎么移都会溢。先等比缩小到
     /// 可用宽（保持纵横比，1920 基线不缩放零回归），再平移钳回画布。

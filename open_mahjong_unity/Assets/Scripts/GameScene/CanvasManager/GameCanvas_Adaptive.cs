@@ -16,6 +16,9 @@ public partial class GameCanvas {
 
     private const float SeatPanelMargin = 8f;
 
+    // 展开态倒计时与按钮行/表情按钮的让位间隙
+    private const float WidgetOverlapGap = 8f;
+
     // 宽屏比阈值与让位量：折叠横屏 letterbox 到 16:9 后逻辑画布 1920×1080
     // (1.78:1)，展开内屏 1662×1247 (1.33:1)。折叠/宽屏态顶家（对家）面板右缘
     // 会压住对家的吃碰副露区，往左让 40；左家让位一个头像宽度只在更宽的
@@ -84,16 +87,103 @@ public partial class GameCanvas {
         if (gameSceneUi == null) return;
         RectTransform selfControl = gameSceneUi.Find("SelfControl") as RectTransform;
         if (selfControl != null) {
-            UiRectClamp.ClampIntoCanvas(selfControl.Find("Timer") as RectTransform);
+            // 倒计时：钳回画布后再对可见的吃碰杠按钮行做重叠让位（展开态两者都贴右缘）
+            ResolveTimerPlacement();
             UiRectClamp.ClampIntoCanvas(selfControl.Find("SideBar") as RectTransform);
             UiRectClamp.ClampIntoCanvas(selfControl.Find("OpenStickerPanelButton") as RectTransform);
+            UiRectClamp.ClampIntoCanvas(selfControl.Find("DingquePanel") as RectTransform);
+            UiRectClamp.ClampIntoCanvas(selfControl.Find("RiichiPanel") as RectTransform);
         }
+        // 吃碰杠按钮行与候选块容器平时隐藏/为空，画布变化的自适应时机覆盖不到
+        // 激活瞬间；这里兜底转屏时已展开的情况，生成/展开时机另调同名方法。
+        FitActionHostIntoCanvas(ActionButtonContainer);
+        FitActionHostIntoCanvas(DedicatedActionButtonContainer);
+        FitActionBlockContainerIntoCanvas();
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("StickerPanel") as RectTransform);
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("ShowSpectatorPlayer") as RectTransform);
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("AutoAction/SidebarFooter/ExpandNames/Triangle") as RectTransform);
         // 右上角的页面切换按钮组与退出按钮也是中心锚 + 固定偏移
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("GamePageControl") as RectTransform);
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("#ExitButtonManager") as RectTransform);
+    }
+
+    // 场景原始摆位缓存：每次适配先复位再钳制/让位，折/展循环不叠加
+    private readonly Dictionary<RectTransform, Vector2> widgetOriginalPositions = new Dictionary<RectTransform, Vector2>();
+
+    private void ResetWidgetToOriginal(RectTransform rt) {
+        if (rt == null) return;
+        if (!widgetOriginalPositions.TryGetValue(rt, out Vector2 original)) {
+            original = rt.anchoredPosition;
+            widgetOriginalPositions[rt] = original;
+        }
+        rt.anchoredPosition = original;
+    }
+
+    /// <summary>
+    /// 吃碰杠按钮行与候选块容器平时隐藏，画布变窄时的统一钳制覆盖不到激活
+    /// 瞬间；在按钮生成与候选展开后调用：先复位场景摆位再钳回画布，保证
+    /// 展开态下按钮行右缘（UpperRight 布局对齐）完整在屏内。折叠态画布更宽，
+    /// 钳制不触发，零回归。
+    /// </summary>
+    internal void FitActionHostIntoCanvas(Transform host) {
+        if (!(host is RectTransform rt)) return;
+        ResetWidgetToOriginal(rt);
+        UiRectClamp.ClampIntoCanvas(rt);
+    }
+
+    internal void FitActionBlockContainerIntoCanvas() {
+        FitActionHostIntoCanvas(ActionBlockContenter);
+    }
+
+    /// <summary>
+    /// 倒计时让位：展开态画布逻辑宽 ~1499，Timer（场景 ap 754.5 按 1920 调）
+    /// 钳回屏内会整个压在吃碰杠按钮行上（按钮行同样贴画布右缘）。按钮行可见
+    /// 且矩形相交时把 Timer 抬到行上方，再依次让开表情按钮与右侧座位面板；
+    /// 按钮行隐藏时只做复位 + 钳制。
+    /// </summary>
+    internal void ResolveTimerPlacement() {
+        if (FreeGameState.Active != null) return;
+        RectTransform gameSceneUi = transform.Find("GamePanel/GameSceneUI") as RectTransform;
+        if (gameSceneUi == null) return;
+        RectTransform selfControl = gameSceneUi.Find("SelfControl") as RectTransform;
+        RectTransform timer = selfControl != null ? selfControl.Find("Timer") as RectTransform : null;
+        if (timer == null) return;
+        ResetWidgetToOriginal(timer);
+        UiRectClamp.ClampIntoCanvas(timer);
+
+        RectTransform host = ActionButtonHost as RectTransform;
+        if (host == null || !host.gameObject.activeInHierarchy) return;
+        if (!UiRectClamp.TryGetRectInCanvas(timer, out Rect timerRect)) return;
+        if (!UiRectClamp.TryGetRectInCanvas(host, out Rect hostRect)) return;
+        if (!timerRect.Overlaps(hostRect)) return;
+
+        // 抬到按钮行上方
+        float dy = hostRect.yMax + WidgetOverlapGap - timerRect.yMin;
+        UiRectClamp.MoveByCanvasDelta(timer, new Vector2(0f, dy));
+        if (!UiRectClamp.TryGetRectInCanvas(timer, out timerRect)) return;
+
+        // 让开右下的表情按钮（往左移，右缘退到表情按钮左侧）
+        RectTransform sticker = selfControl.Find("OpenStickerPanelButton") as RectTransform;
+        if (sticker != null && sticker.gameObject.activeInHierarchy
+            && UiRectClamp.TryGetRectInCanvas(sticker, out Rect stickerRect)
+            && timerRect.Overlaps(stickerRect)) {
+            float dx = Mathf.Min(timerRect.xMax - (stickerRect.xMin - WidgetOverlapGap),
+                                 timerRect.xMin - WidgetOverlapGap);
+            if (dx > 0f) {
+                UiRectClamp.MoveByCanvasDelta(timer, new Vector2(-dx, 0f));
+                if (!UiRectClamp.TryGetRectInCanvas(timer, out timerRect)) return;
+            }
+        }
+
+        // 竖屏折叠态右侧座位面板被钳到右缘中部，抬升后的倒计时可能压上，再左移让开
+        RectTransform rightPanel = playerRightPanel != null ? playerRightPanel.transform as RectTransform : null;
+        if (rightPanel != null && rightPanel.gameObject.activeInHierarchy
+            && UiRectClamp.TryGetRectInCanvas(rightPanel, out Rect rightRect)
+            && timerRect.Overlaps(rightRect)) {
+            float dx = Mathf.Min(timerRect.xMax - (rightRect.xMin - WidgetOverlapGap),
+                                 timerRect.xMin - WidgetOverlapGap);
+            if (dx > 0f) UiRectClamp.MoveByCanvasDelta(timer, new Vector2(-dx, 0f));
+        }
     }
 
     /// <summary>把四个座位面板钳制回画布内，并按形态做横向让位。</summary>

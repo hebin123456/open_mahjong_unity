@@ -544,6 +544,8 @@ public partial class GameCanvas : MonoBehaviour {
         Game3DManager.Instance?.HideClaimGlow();
         // 决策按钮消失后，若听牌提示面板仍显示，恢复其默认位置。
         TipsContainer.Instance?.ReapplyPlacement();
+        // 按钮行隐藏后倒计时回到常规位置（若此前为按钮行让过位）
+        ResolveTimerPlacement();
     }
 
     /// <summary>
@@ -559,6 +561,11 @@ public partial class GameCanvas : MonoBehaviour {
             DedicatedActionButtonContainer.gameObject.SetActive(false);
         }
         if (host != null) host.gameObject.SetActive(visible);
+        if (visible && FreeGameState.Active == null) {
+            // 按钮行平时隐藏，展开态画布变窄的统一钳制覆盖不到激活瞬间，
+            // 显示时把行钳回画布内（场景按 1920 摆位，折叠态不触发零回归）。
+            FitActionHostIntoCanvas(host);
+        }
     }
 
     internal Transform ActionButtonHost {
