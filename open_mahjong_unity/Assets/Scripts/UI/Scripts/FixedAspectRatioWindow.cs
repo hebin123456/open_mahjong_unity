@@ -392,17 +392,18 @@ public class FixedAspectRatio : MonoBehaviour {
 
     /// <summary>
     /// 视口比例从 16:9 放宽到更方的 target 后，同一竖直 FOV 下水平视野变窄，
-    /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV，
-    /// 使水平视野与 16:9 构图一致；恢复 16:9 目标时还原原始 FOV。
-    /// 全屏铺满（不 letterbox）的近方形屏同样适用——视口更方，水平视野同样变窄。
+    /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV 补齐水平视野；
+    /// 恢复 16:9 目标时还原原始 FOV。
     /// 计算用相机实际视口比例（letterbox 后的 pixelRect），而不是 Screen 比例与
     /// targetAspect 的换算值：设备上报尺寸偏差时旧写法可能直接跳过补偿，展开态
     /// 左右两墩牌被裁出屏。
     ///
-    /// 补偿量必须「刚好补齐」：水平视野补到与折叠态 16:9 一致时，牌墩就已经和
-    /// 折叠态一样完整可见（折叠态本身就是这个构图），再放大只会整体缩小牌桌——
-    /// 之前按视口比例加的 12% 水平余量让展开态牌比折叠态小一成多，视觉上
-    /// 「棋盘内容变少」，已去掉。
+    /// 但只补齐水平视野还不够：近方形屏（letterbox target 收窄到 4:3）的视口
+    /// 宽度是整块屏宽，比折叠态 16:9 视口宽 25%，而这套公式下牌的屏幕尺寸
+    /// 正比于视口宽度，于是展开态牌比折叠态大 1.25 倍（用户反馈「牌桌越来
+    /// 越大」）。近方形横持视口再乘 1.26，把牌缩回折叠态基准（模拟验证：展开
+    /// 态可见世界 ±315x±236，牌与折叠态同大）；竖持视口以短边为宽、牌本就
+    /// 偏小，维持原状不再额外缩小。
     /// </summary>
     private void ApplyCameraFov(float targetAspect, Camera[] cameras) {
         if (targetAspect <= 0f) return;
@@ -417,6 +418,12 @@ public class FixedAspectRatio : MonoBehaviour {
                 ? camera.pixelWidth / (float)camera.pixelHeight
                 : targetAspect;
             float fovScale = targetAspectRatio / Mathf.Max(0.01f, viewportAspect);
+            // 近方形横持视口（letterbox target 收窄到 4:3，如折叠屏展开态）比折叠态
+            // 16:9 视口宽约 25%，只补水平视野时牌会按视口宽度等比放大，需再缩回
+            // 折叠态基准；竖持（pixelWidth < pixelHeight）不缩。
+            if (viewportAspect < 1.6f && camera.pixelWidth >= camera.pixelHeight) {
+                fovScale *= 1.26f;
+            }
             if (fovScale > 1.0001f) {
                 float tanHalf = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad) * fovScale;
                 camera.fieldOfView = 2f * Mathf.Atan(tanHalf) * Mathf.Rad2Deg;
