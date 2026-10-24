@@ -22,6 +22,9 @@ public partial class GameCanvas {
         if (handCardsContainer == null) {
             return;
         }
+        // 缓存规则：折叠屏折/展改变画布尺寸后由 GameCanvas_Adaptive 用同一规则重算
+        adaptiveRoomRule = roomRule;
+        adaptiveSubRule = subRule;
         if (!hasCapturedDefaultHandCardsContainerScale) {
             defaultHandCardsContainerScale = handCardsContainer.localScale;
             hasCapturedDefaultHandCardsContainerScale = true;
