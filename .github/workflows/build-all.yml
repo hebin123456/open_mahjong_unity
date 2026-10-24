@@ -323,22 +323,16 @@ jobs:
           name: linux-package
           path: ${{ github.workspace }}/Linux.zip
 
-  export-xcode:
-    name: iOS - Unity -> Xcode Project
-    runs-on: ubuntu-latest
+  build-ios:
+    name: iOS - Unity -> Xcode -> Unsigned IPA
+    runs-on: macos-15
+    # macOS arm64 runner 容量紧张时排队会被自动取消，不能因此阻塞 APK/Windows 发布
+    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Free disk space (Unity builds need room)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          large-packages: true
-          docker-images: false
-          swap-storage: true
 
       - name: Cache Unity Library
         uses: actions/cache@v4
@@ -349,7 +343,7 @@ jobs:
             Library-iOS-v2-${{ github.ref_name }}-
             Library-iOS-v2-
 
-      - name: Build iOS (export Xcode project)
+      - name: Build iOS (Unity -> Xcode)
         uses: game-ci/unity-builder@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
@@ -362,35 +356,18 @@ jobs:
           allowDirtyBuild: true
           versioning: None
           buildsPath: build
-
-      - name: Upload Xcode project
-        uses: actions/upload-artifact@v4
-        with:
-          name: xcode-project
-          path: build/iOS
-          retention-days: 3
-
-  make-ipa:
-    name: iOS - Xcode -> Unsigned IPA
-    needs: export-xcode
-    runs-on: macos-15
-    # macOS arm64 runner 容量紧张时排队会被自动取消，不能因此阻塞 APK/Windows 发布
-    continue-on-error: true
-    steps:
-      - name: Download Xcode project
-        uses: actions/download-artifact@v4
-        with:
-          name: xcode-project
-          path: xcode
+          cacheUnityInstallationOnMac: true
 
       - name: Show project layout & schemes
         run: |
-          ls -la xcode
-          xcodebuild -list -project xcode/iOS/Unity-iPhone.xcodeproj || true
+          ls -la build/iOS
+          PROJ=$(find build/iOS -maxdepth 3 -name '*.xcodeproj' | head -n 1)
+          echo "Project: $PROJ"
+          xcodebuild -list -project "$PROJ" || true
 
       - name: Allow plain HTTP (ATS) in Info.plist
         run: |
-          PLIST=$(find xcode -maxdepth 3 -name Info.plist | head -n 1)
+          PLIST=$(find build/iOS -maxdepth 3 -name Info.plist | head -n 1)
           echo "Info.plist: $PLIST"
           if [ -n "$PLIST" ] && [ -f "$PLIST" ]; then
             plutil -remove NSAppTransportSecurity "$PLIST" 2>/dev/null || true
@@ -404,7 +381,7 @@ jobs:
       - name: Build unsigned .app
         run: |
           set -euo pipefail
-          PROJ=$(find xcode -maxdepth 3 -name '*.xcodeproj' | head -n 1)
+          PROJ=$(find build/iOS -maxdepth 3 -name '*.xcodeproj' | head -n 1)
           echo "Project: $PROJ"
           SCHEME="Unity-iPhone"
           if ! xcodebuild -list -project "$PROJ" | grep -q "Unity-iPhone"; then
@@ -433,7 +410,7 @@ jobs:
 
   publish:
     name: Publish Release
-    needs: [ build-android, build-windows, build-linux, make-ipa ]
+    needs: [ build-android, build-windows, build-linux, build-ios ]
     # Android + Windows + Linux 成功即发布；iOS IPA 失败（含被取消）时跳过 IPA 继续发
     if: ${{ !cancelled() && needs.build-android.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-latest
@@ -457,7 +434,7 @@ jobs:
           path: artifacts/linux-package
 
       - name: Download unsigned IPA
-        if: ${{ needs.make-ipa.result == 'success' }}
+        if: ${{ needs.build-ios.result == 'success' }}
         uses: actions/download-artifact@v4
         with:
           name: unsigned-ipa
