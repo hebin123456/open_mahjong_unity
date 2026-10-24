@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public partial class GameCanvas {
@@ -8,15 +9,25 @@ public partial class GameCanvas {
     // 顶部（场景 y=1162 是在 ~1500×1384 的画布上调的），内屏展开后手牌
     // 右缘出屏（fitScale 冻结在旧分辨率）。这里在画布尺寸变化后统一适配：
     //   1. 座位面板钳制回画布内（保留原始摆位，只在放不下时往回收）；
-    //   2. 手牌布局按当前画布重新计算（含拖拽安全带与右侧边距）。
+    //   2. 折叠态宽屏比下左家面板再左移一个头像宽度，让开对家吃/碰副露区
+    //      的屏幕投影（纵向钳到顶带后头像正好压在上面）；
+    //   3. 手牌布局按当前画布重新计算（含拖拽安全带与右侧边距）。
     // ---------------------------------------------------------------------
 
     private const float SeatPanelMargin = 8f;
+
+    // 宽屏比阈值与左家面板让位量：Magic V5 外屏折叠横屏逻辑 2156×962
+    // (2.24:1)，展开内屏 ~1499×1384 (1.08:1)、16:9 桌面 1.78:1 都低于阈值。
+    // 让位量 = 一个头像宽度（ProfileImageEdge 110）。
+    private const float WideAspectThreshold = 2f;
+    private const float LeftPanelWideShift = 110f;
 
     private Vector2 lastCanvasSize;
     private string adaptiveRoomRule;
     private string adaptiveSubRule;
     private RectTransform canvasRect;
+    // 场景原始摆位：每次适配都从它出发，保证折/展循环里钳制与让位重复应用不叠加
+    private readonly Dictionary<GamePlayerPanel, Vector2> seatOriginalPositions = new Dictionary<GamePlayerPanel, Vector2>();
 
     private RectTransform CanvasRect {
         get {
@@ -73,10 +84,30 @@ public partial class GameCanvas {
     /// <summary>把四个座位面板钳制回画布内：锚点与摆位不变，只在画布放不下时收进来。</summary>
     private void ClampSeatPanelsIntoCanvas(Vector2 canvasSize) {
         if (canvasSize.x <= 1f || canvasSize.y <= 1f) return;
-        ClampPanelIntoCanvas(playerSelfPanel, canvasSize);
-        ClampPanelIntoCanvas(playerLeftPanel, canvasSize);
-        ClampPanelIntoCanvas(playerTopPanel, canvasSize);
-        ClampPanelIntoCanvas(playerRightPanel, canvasSize);
+        AdaptSeatPanel(playerSelfPanel, canvasSize, false);
+        AdaptSeatPanel(playerLeftPanel, canvasSize, canvasSize.x / canvasSize.y >= WideAspectThreshold);
+        AdaptSeatPanel(playerTopPanel, canvasSize, false);
+        AdaptSeatPanel(playerRightPanel, canvasSize, false);
+    }
+
+    /// <summary>
+    /// 单个座位面板适配：先复位到场景原始摆位（首次适配时记录），再钳回画布；
+    /// 折叠态宽屏比下左家面板整体再左移一个头像宽度让开对家吃牌区。从原始摆
+    /// 位出发保证折/展循环里位移不叠加。
+    /// </summary>
+    private void AdaptSeatPanel(GamePlayerPanel panel, Vector2 canvasSize, bool wideShiftLeft) {
+        if (panel == null) return;
+        RectTransform rt = panel.transform as RectTransform;
+        if (rt == null || rt.anchorMin != rt.anchorMax) return; // 仅处理点锚座位面板
+        if (!seatOriginalPositions.TryGetValue(panel, out Vector2 original)) {
+            original = rt.anchoredPosition;
+            seatOriginalPositions[panel] = original;
+        }
+        rt.anchoredPosition = original;
+        ClampPanelIntoCanvas(panel, canvasSize);
+        if (wideShiftLeft) {
+            rt.anchoredPosition += new Vector2(-LeftPanelWideShift, 0f);
+        }
     }
 
     private static void ClampPanelIntoCanvas(GamePlayerPanel panel, Vector2 canvasSize) {
