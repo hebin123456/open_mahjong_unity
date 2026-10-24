@@ -27,11 +27,8 @@ public class SoloDiagnosticsOverlay : MonoBehaviour {
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Create() {
-        if (!ConfigManager.SoloMode) return;
-        var go = new GameObject("SoloDiagnosticsOverlay");
-        DontDestroyOnLoad(go);
-        go.AddComponent<SoloDiagnosticsOverlay>();
-        Application.logMessageReceived += OnLog;
+        // 诊断面板默认隐藏：不再挂载覆盖层，左上角也不再显示「诊断面板」按钮。
+        return;
     }
 
     private static void OnLog(string message, string stackTrace, LogType type) {
