@@ -21,6 +21,7 @@ public class SoloTutorialController : MonoBehaviour {
     private string hint;
     private float hintExpiresAt;
     private GUIStyle body;
+    private GUIStyle buttonStyle;
     private GUIStyle hintStyle;
 
     private static readonly string[][] Scenarios = {
@@ -108,8 +109,10 @@ public class SoloTutorialController : MonoBehaviour {
 
     private void DrawOverlay() {
         if (body == null) {
-            int size = Mathf.Max(20, Screen.height / 52);
+            // 教程面向新手，文字要比诊断面板（h/52≈20px@1080p）明显更大才看得清
+            int size = Mathf.Max(28, Screen.height / 26);
             body = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = false };
+            buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = size, wordWrap = false };
             hintStyle = new GUIStyle(GUI.skin.box) {
                 fontSize = size, wordWrap = true, alignment = TextAnchor.MiddleCenter,
             };
@@ -135,12 +138,12 @@ public class SoloTutorialController : MonoBehaviour {
         GUI.Label(new Rect(px + 16, py + 10, pw - 32, h2), "选择要学习的操作", body);
         float by = py + 10f + h2 + 8f;
         foreach (var scenario in Scenarios) {
-            if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), scenario[1])) {
+            if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), scenario[1], buttonStyle)) {
                 StartScenario(scenario[0]);
             }
             by += h2 + 8f;
         }
-        if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), "关闭")) {
+        if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), "关闭", buttonStyle)) {
             pickerOpen = false;
         }
     }

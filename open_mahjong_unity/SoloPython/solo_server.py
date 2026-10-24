@@ -963,6 +963,7 @@ TUTORIAL_SCENARIOS = {
 def _new_tutorial_state(server: SoloServer, room_data: dict):
     """实例化教程引擎：真人固定坐庄、首局用教学牌墙、行动窗口顺带推送新手提示。"""
     from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
+    from server.gamestate.game_hangzhou.state_machine import Phase as P
 
     class TutorialHangzhouGameState(HangzhouGameState):
         def _rotate_initial_dealer_randomly(self):
