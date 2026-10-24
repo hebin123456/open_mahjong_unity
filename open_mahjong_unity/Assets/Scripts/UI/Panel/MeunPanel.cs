@@ -10,6 +10,31 @@ public class MeunPanel : MonoBehaviour {
     [SerializeField] private Button matchEntryButton;
     [SerializeField] private TMP_Text matchPlayerCountText;
 
+    // 折叠屏适配：左右两栏都是中心锚 + 固定偏移，展开态画布变窄（逻辑 ~1499 宽，
+    // 场景摆位按 1920 调）后左栏左缘/右栏右缘会推出屏；画布尺寸变化时钳回画布。
+    private RectTransform menuCanvasRect;
+    private Vector2 lastMenuCanvasSize;
+    private RectTransform menuLeftColumn;
+    private RectTransform menuRightColumn;
+
+    private void Update() {
+        if (menuCanvasRect == null) {
+            Canvas canvas = GetComponentInParent<Canvas>();
+            if (canvas == null) return;
+            menuCanvasRect = canvas.transform as RectTransform;
+        }
+        Vector2 size = menuCanvasRect.rect.size;
+        if (Mathf.Abs(size.x - lastMenuCanvasSize.x) < 0.5f
+            && Mathf.Abs(size.y - lastMenuCanvasSize.y) < 0.5f) {
+            return;
+        }
+        lastMenuCanvasSize = size;
+        if (menuLeftColumn == null) menuLeftColumn = transform.Find("GameObject") as RectTransform;
+        if (menuRightColumn == null) menuRightColumn = transform.Find("RoomListPanel/GameObject") as RectTransform;
+        UiRectClamp.ClampIntoCanvas(menuLeftColumn);
+        UiRectClamp.ClampIntoCanvas(menuRightColumn);
+    }
+
     private void Awake() {
         if (Instance != null && Instance != this) {
             Destroy(gameObject);

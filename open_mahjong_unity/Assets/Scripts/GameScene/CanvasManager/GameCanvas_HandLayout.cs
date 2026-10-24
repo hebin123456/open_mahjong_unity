@@ -56,7 +56,10 @@ public partial class GameCanvas {
     }
 
     /// <summary>
-    /// 手牌整行（含摸牌位）超出可用宽度时按比例收窄，可用宽度 = 画布宽 - 左侧安全带 - 右侧边距。
+    /// 手牌整行（含摸牌位）超出可用宽度时按比例收窄。可用宽度同时受两个约束：
+    /// 固定 1920 宽的 HandCardDragController（旧行为），以及画布实际右缘——折叠屏
+    /// 展开后画布逻辑宽仅 ~1499 且控制器居中左右各溢出 ~210，只看父宽会高估可用
+    /// 宽度导致手牌右缘出屏。取两者较小值，桌面与折叠态布局不变。
     /// </summary>
     private float ResolveHandFitScale(HandStructure handStructure, float ruleScale) {
         if (tileCardWidth <= 0f) {
@@ -69,6 +72,13 @@ public partial class GameCanvas {
         float handWidth = tileCardWidth * handStructure.DisplayWidthUnits * ruleScale;
         float left = Mathf.Max(defaultHandCardsContainerPosition.x, HandLeftGuardX);
         float usable = parentRect.rect.width - left - HandRightMargin;
+        RectTransform canvasRt = CanvasRect;
+        if (canvasRt != null && canvasRt.rect.width > 0f) {
+            // 控制器父链（SelfControl→GameSceneUI→GamePanel）与画布左缘对齐，
+            // rect.min.x 即画布坐标：把画布右缘折算到控制器本地再扣左侧安全带
+            float canvasUsable = canvasRt.rect.width - HandRightMargin - parentRect.rect.min.x - left;
+            usable = Mathf.Min(usable, canvasUsable);
+        }
         if (usable <= 0f || handWidth <= usable) {
             return 1f;
         }

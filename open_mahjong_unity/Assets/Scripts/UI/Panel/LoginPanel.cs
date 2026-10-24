@@ -54,6 +54,31 @@ public class LoginPanel : MonoBehaviour {
 
     private Coroutine serverConnectCoroutine;
 
+    // 折叠屏适配：左侧说明/提示文字、右侧登录浮窗与顶部连接状态都是中心锚 +
+    // 固定偏移，展开态画布变窄（逻辑 ~1499 宽，场景摆位按 1920 调）后会横推出屏。
+    private RectTransform loginCanvasRect;
+    private Vector2 lastLoginCanvasSize;
+
+    private void Update() {
+        if (loginCanvasRect == null) {
+            Canvas canvas = GetComponentInParent<Canvas>();
+            if (canvas == null) return;
+            loginCanvasRect = canvas.transform as RectTransform;
+        }
+        Vector2 size = loginCanvasRect.rect.size;
+        if (Mathf.Abs(size.x - lastLoginCanvasSize.x) < 0.5f
+            && Mathf.Abs(size.y - lastLoginCanvasSize.y) < 0.5f) {
+            return;
+        }
+        lastLoginCanvasSize = size;
+        UiRectClamp.ClampIntoCanvas(transform.Find("TEXT") as RectTransform);
+        if (loginTipsText != null) UiRectClamp.ClampIntoCanvas(loginTipsText.rectTransform);
+        if (connectStatusText != null) UiRectClamp.ClampIntoCanvas(connectStatusText.rectTransform);
+        UiRectClamp.ClampIntoCanvas(formContainer != null
+            ? formContainer.transform as RectTransform
+            : transform.Find("LoginPanel") as RectTransform);
+    }
+
     private void Awake() {
         if (Instance == null) {
             Instance = this;

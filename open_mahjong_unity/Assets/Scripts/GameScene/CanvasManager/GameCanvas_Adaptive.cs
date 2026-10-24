@@ -40,10 +40,34 @@ public partial class GameCanvas {
     private void ApplyAdaptiveLayout(Vector2 canvasSize) {
         lastCanvasSize = canvasSize;
         ClampSeatPanelsIntoCanvas(canvasSize);
+        ClampFixedWidgetsIntoCanvas();
         // 手牌规则缓存自最近一次 ConfigureHandLayoutForRule（开局/读谱都会走）
         if (!string.IsNullOrEmpty(adaptiveRoomRule)) {
             ConfigureHandLayoutForRule(adaptiveRoomRule, adaptiveSubRule);
         }
+    }
+
+    /// <summary>
+    /// 计时器、侧栏、表情按钮等都是中心锚 + 固定偏移，展开态画布变窄（逻辑宽
+    /// ~1499，场景摆位按 1920 调）后会横推出屏；表情面板、观战栏、AutoAction
+    /// 三角同理。统一钳回画布。注意 GameRecordUI/SideBar 与 SpectatorList 是
+    /// 滑入抽屉，静止时本来就停在屏外，不能钳。
+    /// </summary>
+    private void ClampFixedWidgetsIntoCanvas() {
+        RectTransform gameSceneUi = transform.Find("GamePanel/GameSceneUI") as RectTransform;
+        if (gameSceneUi == null) return;
+        RectTransform selfControl = gameSceneUi.Find("SelfControl") as RectTransform;
+        if (selfControl != null) {
+            UiRectClamp.ClampIntoCanvas(selfControl.Find("Timer") as RectTransform);
+            UiRectClamp.ClampIntoCanvas(selfControl.Find("SideBar") as RectTransform);
+            UiRectClamp.ClampIntoCanvas(selfControl.Find("OpenStickerPanelButton") as RectTransform);
+        }
+        UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("StickerPanel") as RectTransform);
+        UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("ShowSpectatorPlayer") as RectTransform);
+        UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("AutoAction/SidebarFooter/ExpandNames/Triangle") as RectTransform);
+        // 右上角的页面切换按钮组与退出按钮也是中心锚 + 固定偏移
+        UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("GamePageControl") as RectTransform);
+        UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("#ExitButtonManager") as RectTransform);
     }
 
     /// <summary>把四个座位面板钳制回画布内：锚点与摆位不变，只在画布放不下时收进来。</summary>
