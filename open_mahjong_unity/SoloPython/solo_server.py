@@ -1077,6 +1077,19 @@ async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message
                        "message": "教程「%s」开始" % scenario["title"]})
 
 
+async def _handle_stop_tutorial(server: SoloServer, conn: WsConnection, message: dict):
+    """solo/stop_tutorial：中途退出新手教程（对局未结束也直接终止并清场）。"""
+    game = server._game
+    is_tutorial = game is not None and str(getattr(game, "gamestate_id", "")).startswith("solo-tutorial-")
+    if not is_tutorial:
+        await _send(conn, {"type": "solo/stop_tutorial", "success": False,
+                           "message": "当前没有进行中的新手教程"})
+        return
+    await _stop_solo_game(server)
+    _note("教程对局已终止 uid=%s" % conn.user_id)
+    await _send(conn, {"type": "solo/stop_tutorial", "success": True, "message": "教程已结束"})
+
+
 # ----------------------------------------------------------------------------
 # 消息分发
 # ----------------------------------------------------------------------------
@@ -1447,6 +1460,10 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
 
     if mtype == "solo/start_tutorial":
         await _handle_start_tutorial(server, conn, message)
+        return
+
+    if mtype == "solo/stop_tutorial":
+        await _handle_stop_tutorial(server, conn, message)
         return
 
     if mtype == "room/set_claim_protection":

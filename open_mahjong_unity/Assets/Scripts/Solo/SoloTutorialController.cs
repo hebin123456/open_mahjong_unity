@@ -18,6 +18,8 @@ public class SoloTutorialController : MonoBehaviour {
 
     private static SoloTutorialController instance;
     private bool pickerOpen;
+    private bool inTutorial;
+    private bool tutorialGameEntered;
     private string hint;
     private float hintExpiresAt;
     private GUIStyle body;
@@ -56,10 +58,22 @@ public class SoloTutorialController : MonoBehaviour {
         switch (response.type) {
             case "solo/start_tutorial":
                 if (response.success) {
+                    inTutorial = true;
                     pickerOpen = false;
                 } else {
                     NotificationManager.Instance?.ShowTip("新手教程", false,
                         string.IsNullOrEmpty(response.message) ? "教程启动失败" : response.message);
+                }
+                break;
+            case "solo/stop_tutorial":
+                if (response.success) {
+                    inTutorial = false;
+                    tutorialGameEntered = false;
+                    hint = null;
+                    WindowsManager.Instance?.SwitchWindow("menu");
+                } else {
+                    NotificationManager.Instance?.ShowTip("新手教程", false,
+                        string.IsNullOrEmpty(response.message) ? "结束教程失败" : response.message);
                 }
                 break;
             case "solo/tutorial_hint":
@@ -97,6 +111,13 @@ public class SoloTutorialController : MonoBehaviour {
 
     private void Update() {
         if (hint != null && Time.unscaledTime > hintExpiresAt) hint = null;
+        // 教学局打完离开对局场景后自动结束教程状态。
+        // 注意 start ack 时游戏窗口尚未切过去，须等真正进过对局再回收，否则 inTutorial 会被立刻清掉。
+        if (inTutorial && GameSessionGuard.HasExclusiveSession) tutorialGameEntered = true;
+        if (inTutorial && tutorialGameEntered && !GameSessionGuard.HasExclusiveSession) {
+            inTutorial = false;
+            tutorialGameEntered = false;
+        }
     }
 
     private void OnGUI() {
@@ -126,12 +147,15 @@ public class SoloTutorialController : MonoBehaviour {
         // 场景选择面板：由顶栏「新手教程」按钮打开；进入对局/观战时自动收起
         if (GameSessionGuard.HasExclusiveSession) {
             pickerOpen = false;
+            // 教学局没有现成的退出入口，对局内常驻「结束教程」按钮（提示气泡正下方）
+            if (inTutorial) DrawStopButton();
             return;
         }
         if (!pickerOpen) return;
         float h2 = body.fontSize * 2.6f;
         float pw = Mathf.Max(320, body.fontSize * 16);
-        float ph = (h2 + 8f) * Scenarios.Length + h2 + 20f;
+        // 标题一行 + 场景按钮 + 关闭，之前漏算了标题占的高度，关闭按钮被挤出面板外
+        float ph = (h2 + 8f) * (Scenarios.Length + 1) + h2 + 20f;
         float px = (Screen.width - pw) / 2f;
         float py = (Screen.height - ph) / 2f;
         GUI.Box(new Rect(px, py, pw, ph), GUIContent.none);
@@ -145,6 +169,24 @@ public class SoloTutorialController : MonoBehaviour {
         }
         if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), "关闭", buttonStyle)) {
             pickerOpen = false;
+        }
+    }
+
+    /// <summary>对局中常驻的「结束教程」按钮：点击后服务端终止教学局并回到主菜单。</summary>
+    private void DrawStopButton() {
+        float w = body.fontSize * 5f + 24f;
+        float h = body.fontSize * 1.7f;
+        float y = 12f;
+        if (hint != null) {
+            float bw = Mathf.Min(Screen.width * 0.72f, body.fontSize * 32f);
+            y += hintStyle.CalcHeight(new GUIContent(hint), bw) + body.fontSize * 0.9f + 8f;
+        }
+        if (GUI.Button(new Rect((Screen.width - w) / 2f, y, w, h), "结束教程", buttonStyle)) {
+            var nm = NetworkManager.Instance;
+            if (nm != null && nm.IsWebSocketOpen) {
+                _ = nm.GetWebSocket().SendText(Newtonsoft.Json.JsonConvert.SerializeObject(
+                    new TutorialRequest { type = "solo/stop_tutorial" }));
+            }
         }
     }
 }

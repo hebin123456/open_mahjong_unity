@@ -708,8 +708,9 @@ public partial class NetworkManager : MonoBehaviour {
                 case "solo/demo_record":
                     SoloDemoController.HandleDemoMessage(response);
                     break;
-                // 单机新手教程：启动 ack 与行动指导提示
+                // 单机新手教程：启动 ack、行动指导提示与结束 ack
                 case "solo/start_tutorial":
+                case "solo/stop_tutorial":
                 case "solo/tutorial_hint":
                     SoloTutorialController.HandleTutorialMessage(response);
                     break;
