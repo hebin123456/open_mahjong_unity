@@ -158,12 +158,19 @@ jobs:
           "$ZIPALIGN" -c -p 4 "$GITHUB_WORKSPACE/Android.apk"
           echo "zipalign OK"
           sha256sum "$GITHUB_WORKSPACE/Android.apk"
+          # 输出签名证书指纹：随 artifact 上传并附到 Release notes，覆盖安装前可核对签名一致性
+          CERT_SHA256="$(openssl pkcs12 -in /tmp/release.keystore -passin "pass:$KEYSTORE_PASS" -nodes 2>/dev/null \
+            | openssl x509 -fingerprint -sha256 -noout | sed 's/.*=//' | tr -d ':')"
+          echo "APK signing certificate SHA-256: $CERT_SHA256"
+          echo "$CERT_SHA256" > "$GITHUB_WORKSPACE/cert-sha256.txt"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: ${{ github.workspace }}/Android.apk
+          path: |
+            ${{ github.workspace }}/Android.apk
+            ${{ github.workspace }}/cert-sha256.txt
 
   build-windows:
     name: Build Windows
@@ -464,8 +471,10 @@ jobs:
           TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
           ls -R artifacts
           # 只上传实际存在的产物（IPA 可能因 macOS runner 容量问题被跳过）
-          FILES=$(find artifacts -type f | tr '\n' ' ')
+          FILES=$(find artifacts -type f -not -name cert-sha256.txt | tr '\n' ' ')
+          CERT_FPRINT="$(cat artifacts/android-apk/cert-sha256.txt 2>/dev/null || echo 未获取)"
           echo "Publishing [$FILES] to release '$TAG'"
+          echo "Certificate SHA-256: $CERT_FPRINT"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" \
             --title "单机版 + iOS 未签名包 ($TAG)" \
@@ -474,5 +483,7 @@ jobs:
           - Android.apk：安卓安装包（v1+v2+v3 签名）
           - Windows.zip：Windows 解压运行
           - Linux.zip：Linux 解压后 chmod +x Linux && ./Linux 运行
-          - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）" \
+          - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）
+
+          签名证书 SHA-256：${CERT_FPRINT}（固定入库 keystore CN=open_mahjong；覆盖安装提示签名不一致时核对此指纹）" \
             $FILES
