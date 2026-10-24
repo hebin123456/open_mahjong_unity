@@ -227,6 +227,10 @@ public partial class GameCanvas : MonoBehaviour {
         }
         // 通过面板组件设置玩家信息
         foreach (var player in gameInfo.players_info){
+            // 单机版：真人头像用本地自选角色，机器人按档位映射角色，覆盖服务端默认的 1
+            if (ConfigManager.SoloMode && player != null) {
+                player.profile_used = CharacterCatalog.ResolveProfileId(player.user_id);
+            }
             string position = indexToPosition[player.player_index];
             GamePlayerPanel targetPanel = null;
             // 根据位置获取对应的面板

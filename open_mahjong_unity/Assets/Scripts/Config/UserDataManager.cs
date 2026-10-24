@@ -27,11 +27,22 @@ public class UserDataManager : MonoBehaviour {
         if (state.appearance != null) {
             CharacterId = state.appearance.character_id;
             VoiceId = state.appearance.voice_id;
-            ProfileImageId = state.appearance.profile_image_id;
+            // 单机版没有服务器装扮，头像用本地自选的《大富翁》角色
+            ProfileImageId = ConfigManager.SoloMode
+                ? CharacterCatalog.ResolveProfileId(UserId)
+                : state.appearance.profile_image_id;
             AvatarFrameId = state.appearance.avatar_frame_id;
         }
         OnInventoryChanged?.Invoke();
         GameSettings.NotifyAppearanceChanged(state.appearance);
+    }
+
+    /// <summary>单机版：把本地自选角色套到当前用户头像，并通知界面刷新。</summary>
+    public void ApplyLocalCharacter(int characterId) {
+        if (!CharacterCatalog.IsValid(characterId)) return;
+        ProfileImageId = characterId;
+        CharacterId = characterId;
+        OnInventoryChanged?.Invoke();
     }
 
     public void ApplyTitleState(TitleState state) {

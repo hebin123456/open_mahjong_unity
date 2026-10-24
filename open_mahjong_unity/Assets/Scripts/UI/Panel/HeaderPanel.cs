@@ -24,6 +24,7 @@ public class HeaderPanel : MonoBehaviour {
     private HeaderButton soloTutorialButton;
     // 单机「教学演示」入口：克隆「新手教程」按钮生成，插在其右侧
     private HeaderButton soloDemoButton;
+    private HeaderButton soloCharacterButton;
     [Tooltip("「正在对局中」的红色提醒按钮所使用的底色")]
     [SerializeField] private Color backToGameTintColor = new Color(0.92f, 0.34f, 0.34f);
     [Header("轮到自己操作时的提醒闪烁")]
@@ -79,6 +80,7 @@ public class HeaderPanel : MonoBehaviour {
         if (ConfigManager.SoloMode) {
             AttachSoloTutorialButton(SoloTutorialController.OpenPicker);
             AttachSoloDemoButton(SoloDemoController.OpenPicker);
+            AttachSoloCharacterButton(CharacterPicker.Open);
         }
 
         ConfigManager.OnLanguageChanged += RefreshHeaderLabels;
@@ -128,6 +130,12 @@ public class HeaderPanel : MonoBehaviour {
     private void AttachSoloDemoButton(UnityEngine.Events.UnityAction onClick) {
         if (soloDemoButton != null) return;
         soloDemoButton = AttachSoloHeaderButton(soloTutorialButton, "SoloDemo", 150f, onClick);
+    }
+
+    /// <summary>单机版：在「教学演示」右侧再克隆一个「角色」入口，打开角色选择面板。</summary>
+    private void AttachSoloCharacterButton(UnityEngine.Events.UnityAction onClick) {
+        if (soloCharacterButton != null) return;
+        soloCharacterButton = AttachSoloHeaderButton(soloDemoButton, "SoloCharacter", 150f, onClick);
     }
 
     /// <summary>
@@ -275,6 +283,7 @@ public class HeaderPanel : MonoBehaviour {
         // 新手教程是弹层入口而非窗口页，永远保持常态外观
         soloTutorialButton?.SetState(false, false, default);
         soloDemoButton?.SetState(false, false, default);
+        soloCharacterButton?.SetState(false, false, default);
     }
 
     private static bool IsInRoom() {
@@ -290,6 +299,7 @@ public class HeaderPanel : MonoBehaviour {
         SetButtonLabel(recordButton, ConfigManager.SoloMode ? HeaderNavItem.SoloRecord : HeaderNavItem.Record);
         SetButtonLabel(soloTutorialButton, HeaderNavItem.SoloTutorial);
         SetButtonLabel(soloDemoButton, HeaderNavItem.SoloDemo);
+        SetButtonLabel(soloCharacterButton, HeaderNavItem.SoloCharacter);
         SetButtonLabel(matchButton, HeaderNavItem.Match);
         SetButtonLabel(eventButton, HeaderNavItem.Event);
         SetButtonLabel(sceneConfigButton, HeaderNavItem.SceneConfig);
