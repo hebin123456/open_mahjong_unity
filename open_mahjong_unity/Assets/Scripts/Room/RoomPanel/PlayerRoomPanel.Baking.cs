@@ -16,9 +16,10 @@ public partial class PlayerRoomPanel {
         container.sizeDelta = new Vector2(290, 288);
         // Above the full-card player-info hit area, so clicks reach these buttons.
         container.SetAsLastSibling();
-        addAutoBotButton = BakeSeatButton(addAutoBotButton, autoTemplate, "AddAutoBot", "添加摸切机器人", 112, moveOriginals);
-        addEfficiencyBotButton = BakeSeatButton(addEfficiencyBotButton, efficiencyTemplate, "AddEfficiencyBot", "添加牌效机器人", 0, moveOriginals);
-        addHeuristicBotButton = BakeSeatButton(addHeuristicBotButton, heuristicTemplate, "AddHeuristicBot", "添加高性能机器人", -112, moveOriginals);
+        addEasyBotButton = BakeSeatButton(addEasyBotButton, efficiencyTemplate, "AddEasyBot", "低级机器人", 36, false);
+        addAutoBotButton = BakeSeatButton(addAutoBotButton, autoTemplate, "AddAutoBot", "摸切机器人", 108, moveOriginals);
+        addEfficiencyBotButton = BakeSeatButton(addEfficiencyBotButton, efficiencyTemplate, "AddEfficiencyBot", "中级机器人", -36, moveOriginals);
+        addHeuristicBotButton = BakeSeatButton(addHeuristicBotButton, heuristicTemplate, "AddHeuristicBot", "高级机器人", -108, moveOriginals);
         emptySeatBotControls.SetActive(false);
         UnityEditor.EditorUtility.SetDirty(this);
     }
@@ -53,6 +54,7 @@ public partial class PlayerRoomPanel {
     }
 
     public void ValidateEmptySeatBots() {
+        // 低级按钮允许由运行时补齐，旧场景不强制要求序列化。
         if (!emptySeatBotControls || !addAutoBotButton || !addEfficiencyBotButton || !addHeuristicBotButton
             || !emptySeatBotControls.transform.IsChildOf(transform))
             throw new InvalidOperationException(name + " 空座位机器人按钮未烘焙。");

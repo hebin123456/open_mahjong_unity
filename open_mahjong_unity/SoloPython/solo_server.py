@@ -11,7 +11,7 @@
     login(is_tourist)     -> 动态分配真人 user_id（101 起自增）并回 login 成功
     room/create_*         -> 建房；局域网模式下初始只有房主一人，其余座位留给真人/机器人
     room/join_room        -> 其它客户端加入本机房间（满座时顶替一个机器人座位）
-    room/add_bot(*)       -> 房主给空座补机器人（摸切/牌效罗伯特/高性能罗伯特）
+    room/add_bot(*)       -> 房主给空座补机器人（摸切/低级/中级/高级）
     room/start_game       -> 房主开局，缺座自动补满机器人后启动引擎
     gamestate/*           -> handle_action（复用线上实现），引擎按连接广播给所有真人
 """
@@ -56,7 +56,7 @@ def recent_events() -> str:
 # 真人座位：user_id 必须 > 10（引擎用 user_id <= 10 判定机器人）
 HUMAN_USER_ID = 101
 HUMAN_USERNAME = "我"
-BOT_USER_IDS = [1, 2, 3]
+BOT_USER_IDS = [1, 2, 3, 5]
 # 演示局（教学回放）用 4 个机器人补满牌桌；uid 4 只在演示局出现，普通房间不会加到它。
 DEMO_BOT_IDS = [1, 2, 3, 4]
 
@@ -64,7 +64,7 @@ DEMO_BOT_IDS = [1, 2, 3, 4]
 # 局域网内已有相同房号时重新随机；SOLO_ROOM_ID 仅作为兜底占位。
 SOLO_ROOM_ID = "solo-hangzhou"
 SOLO_INSTANCE_ID = "solo-instance-1"
-BOT_USERNAMES = {1: "机器人·摸切", 2: "牌效罗伯特", 3: "高性能罗伯特", 4: "演示助教"}
+BOT_USERNAMES = {1: "摸切机器人", 2: "中级机器人", 3: "高级机器人", 4: "演示助教", 5: "低级机器人"}
 
 # 大厅可选规则：萧山麻将完全复用杭州引擎，引擎内部恒按 hangzhou 处理；
 # 国标麻将使用独立的 GuobiaoGameState 引擎与 gamestate/GB/* 协议通道。
@@ -93,17 +93,19 @@ RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将",
 VARIANT_SUB_RULES = {XIAOSHAN_RULE: XIAOSHAN_SUB_RULE, SHAOXING_RULE: SHAOXING_SUB_RULE,
                      TAIZHOU_RULE: TAIZHOU_SUB_RULE, YIWU_RULE: YIWU_SUB_RULE}
 
-# 三种加机器人入口对应的机器人 id（1=摸切、2=牌效罗伯特、3=高性能罗伯特），
-# 用于房主按入口偏好选人；被占用的 id 自动跳过。
-BOT_PREFERRED_IDS = {"room/add_guobiao_heuristic_bot": 3, "room/add_smart_bot": 2, "room/add_bot": 1}
+# 四种加机器人入口对应的机器人 id（1=摸切、5=低级、2=中级、3=高级），
+# 用于房主按入口偏好选人；同一水平的机器人已在房间时拒绝重复添加。
+BOT_PREFERRED_IDS = {"room/add_easy_bot": 5, "room/add_guobiao_heuristic_bot": 3,
+                     "room/add_smart_bot": 2, "room/add_bot": 1}
 
-# 三个机器人各有人设难度（杭州家族 AI）：
-#   1=机器人·摸切    → "moqie"  纯摸切流，不杠不鸣，永远打刚摸的牌（简单陪练）
-#   2=牌效罗伯特     → "medium" 标准牌效
-#   3=高性能罗伯特   → "hard"   按进张数严格决策
+# 四个机器人各有人设难度（杭州家族 AI）：
+#   1=摸切机器人 → "moqie"  纯摸切流，不杠不鸣，永远打刚摸的牌（陪练）
+#   5=低级机器人 → "easy"   前三候选随机切牌、吃碰放宽
+#   2=中级机器人 → "medium" 标准牌效
+#   3=高级机器人 → "hard"   按进张数严格决策
 # 房主在房间里显式改过机器人难度（room/set_bot_level）后统一覆盖人设；
 # 不在人设表内的机器人（如 4=演示助教）始终走房间级 bot_level。
-BOT_SEAT_LEVELS = {1: "moqie", 2: "medium", 3: "hard"}
+BOT_SEAT_LEVELS = {1: "moqie", 5: "easy", 2: "medium", 3: "hard"}
 
 
 def _bot_levels_for_players(players, room=None):
@@ -390,7 +392,7 @@ def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
     opts = opts or {}
     # 座位以房间当前人员为准：房主开局时若仍缺人，处理层已自动补满机器人
     room = server._room
-    players = list(room["player_list"]) if room is not None else [HUMAN_USER_ID] + BOT_USER_IDS
+    players = list(room["player_list"]) if room is not None else [HUMAN_USER_ID] + BOT_USER_IDS[:3]
     # 国标三麻为 3 家；杭州/萧山/国标均为 4 家
     while len(players) < (3 if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else 4):
         for bot_id in BOT_USER_IDS:
@@ -565,7 +567,8 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
     if server.lan_mode:
         players = [host_uid]
     else:
-        players = [host_uid] + (BOT_USER_IDS[:2] if sanma else BOT_USER_IDS)
+        # 纯单机建房直接补满：默认按摸切/中级/高级的顺序，低级留给房主手动选择。
+        players = [host_uid] + BOT_USER_IDS[:max_player - 1]
     info = {
         "room_id": room_id,
         "instance_id": SOLO_INSTANCE_ID,
@@ -1400,7 +1403,7 @@ async def _handle_create_room(server: SoloServer, conn: WsConnection, message: d
 
 
 async def _handle_add_bot(server: SoloServer, conn: WsConnection, message: dict, mtype: str):
-    """房主给空座补机器人；三种入口对应偏好机器人，被占用则自动顺延。"""
+    """房主给空座补机器人；四种入口各对应一个水平，已在房间时拒绝重复添加。"""
     room = server._room
     if room is None:
         await _send(conn, {"type": "error_message", "success": False, "message": "尚未创建房间"})
@@ -1421,10 +1424,13 @@ async def _handle_add_bot(server: SoloServer, conn: WsConnection, message: dict,
         await _send(conn, {"type": "error_message", "success": False, "message": "机器人已用完"})
         return
     preferred = BOT_PREFERRED_IDS.get(mtype, 1)
-    bot_uid = preferred if preferred in free else free[0]
-    players.append(bot_uid)
+    if preferred not in free:
+        await _send(conn, {"type": "error_message", "success": False,
+                           "message": "该水平的机器人已在房间中"})
+        return
+    players.append(preferred)
     _sync_room_view(server)
-    _note("房主加机器人 uid=" + str(bot_uid) + " 座位=" + str(players))
+    _note("房主加机器人 uid=" + str(preferred) + " 座位=" + str(players))
     await _broadcast_room_info_all(server)
 
 
@@ -1649,7 +1655,8 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
                            "message": "单机版仅支持杭州麻将、萧山麻将和国标麻将"})
         return
 
-    if mtype in ("room/add_bot", "room/add_smart_bot", "room/add_guobiao_heuristic_bot"):
+    if mtype in ("room/add_bot", "room/add_easy_bot", "room/add_smart_bot",
+                 "room/add_guobiao_heuristic_bot"):
         await _handle_add_bot(server, conn, message, mtype)
         return
 

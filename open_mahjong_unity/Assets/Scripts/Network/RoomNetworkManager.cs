@@ -914,18 +914,20 @@ public partial class RoomNetworkManager : MonoBehaviour {
         }
     }
 
-    public async void SetBotLevel(string roomId, string level) {
-        try {
-            var request = new { type = "room/set_bot_level", room_id = roomId, bot_level = level };
-            await GetWebSocket().SendText(JsonConvert.SerializeObject(request));
-        } catch (System.Exception exception) {
-            Debug.LogError($"调整电脑水平失败: {exception.Message}");
-            NotificationManager.Instance.ShowTip("set_bot_level", false, "调整失败，请检查连接后重试");
-        }
+    /// <summary>
+    /// 添加低级机器人到房间
+    /// </summary>
+    public async void AddEasyBotToRoom(string roomId, int? seatIndex = null) {
+        var request = new AddBotToRoomRequest {
+            type = "room/add_easy_bot",
+            room_id = roomId,
+            seat_index = seatIndex
+        };
+        await GetWebSocket().SendText(JsonConvert.SerializeObject(request));
     }
 
     /// <summary>
-    /// 添加牌效机器人到房间
+    /// 添加中级机器人到房间
     /// </summary>
     public async void AddSmartBotToRoom(string roomId, int? seatIndex = null) {
         var request = new AddBotToRoomRequest {
@@ -937,7 +939,7 @@ public partial class RoomNetworkManager : MonoBehaviour {
     }
 
     /// <summary>
-    /// 添加高性能罗伯特（user_id=3）到国标标准、国标血战到底或虹雀房间
+    /// 添加高级机器人（user_id=3）：国标/虹雀走高性能启发式，杭州家族走 hard 人设
     /// </summary>
     public async void AddGuobiaoHeuristicBotToRoom(string roomId, int? seatIndex = null) {
         var request = new AddBotToRoomRequest {

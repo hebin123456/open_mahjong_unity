@@ -12,6 +12,7 @@ public partial class PlayerRoomPanel : MonoBehaviour {
     [SerializeField] private GameObject readyIcon;         // 准备状态
     [SerializeField] private GameObject emptySeatBotControls;
     [SerializeField] private Button addAutoBotButton;
+    [SerializeField] private Button addEasyBotButton;
     [SerializeField] private Button addEfficiencyBotButton;
     [SerializeField] private Button addHeuristicBotButton;
 
@@ -24,6 +25,7 @@ public partial class PlayerRoomPanel : MonoBehaviour {
 
         playerinfoButton.onClick.AddListener(OnPlayerInfoClicked);
         removePlayerButton.onClick.AddListener(OnRemovePlayerClicked);
+        EnsureBotButtons();
         if (addAutoBotButton) addAutoBotButton.onClick.AddListener(() => AddBot(0));
         if (addEfficiencyBotButton) addEfficiencyBotButton.onClick.AddListener(() => AddBot(2));
         if (addHeuristicBotButton) addHeuristicBotButton.onClick.AddListener(() => AddBot(3));
@@ -77,10 +79,52 @@ public partial class PlayerRoomPanel : MonoBehaviour {
         }
     }
 
-    public void SetEmptySeatBotControls(bool canAdd, bool supportsHeuristic) {
+    public void SetEmptySeatBotControls(bool canAdd, bool supportsHighLevel) {
         if (!emptySeatBotControls) return;
+        if (addHeuristicBotButton) addHeuristicBotButton.gameObject.SetActive(supportsHighLevel);
+        LayoutBotButtons(supportsHighLevel);
         emptySeatBotControls.SetActive(UserId < 0 && canAdd);
-        if (addHeuristicBotButton) addHeuristicBotButton.gameObject.SetActive(supportsHeuristic);
+    }
+
+    /// <summary>旧场景只序列化了三个机器人按钮；运行时补一个低级按钮，四种水平可并存。</summary>
+    private void EnsureBotButtons() {
+        if (emptySeatBotControls == null) return;
+        if (addEasyBotButton == null) {
+            Button template = addEfficiencyBotButton != null ? addEfficiencyBotButton : addAutoBotButton;
+            if (template != null) {
+                addEasyBotButton = Instantiate(template, emptySeatBotControls.transform);
+                addEasyBotButton.name = "AddEasyBot";
+                addEasyBotButton.onClick = new Button.ButtonClickedEvent();
+                addEasyBotButton.gameObject.SetActive(true);
+            }
+        }
+        if (addEasyBotButton != null) addEasyBotButton.onClick.AddListener(() => AddBot(1));
+        LayoutBotButtons(true);
+    }
+
+    private void LayoutBotButtons(bool includeHigh) {
+        const float spacing = 72;
+        float top = (includeHigh ? 1.5f : 1f) * spacing;
+        LayoutBotButton(addAutoBotButton, "摸切机器人", top);
+        LayoutBotButton(addEasyBotButton, "低级机器人", top - spacing);
+        LayoutBotButton(addEfficiencyBotButton, "中级机器人", top - spacing * 2);
+        if (includeHigh) {
+            LayoutBotButton(addHeuristicBotButton, "高级机器人", top - spacing * 3);
+        }
+    }
+
+    private static void LayoutBotButton(Button button, string label, float y) {
+        if (button == null) return;
+        var rect = (RectTransform)button.transform;
+        rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
+        rect.anchoredPosition = new Vector2(0, y);
+        rect.sizeDelta = new Vector2(284, 64);
+        rect.localScale = Vector3.one;
+        var text = button.GetComponentInChildren<TMP_Text>(true);
+        if (text == null) return;
+        text.text = label;
+        text.enableAutoSizing = false;
+        text.fontSize = 27;
     }
 
     private void AddBot(int kind) {

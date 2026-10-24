@@ -19,11 +19,10 @@ public partial class RoomPanel : MonoBehaviour {
     [SerializeField] private Button readyButton; // 准备按钮（仅非房主显示）
     [SerializeField] private TMP_Text readyButtonText; // 准备按钮文本（可选，用于切换“准备/取消准备”）
     [SerializeField] private Button addBotButton; // 添加摸切机器人按钮
-    [SerializeField] private Button addSmartBotButton; // 添加牌效机器人按钮
-    [SerializeField] private Button addGuobiaoHeuristicBotButton; // 添加高性能机器人按钮（请在 Inspector 中拖拽绑定）
+    [SerializeField] private Button addSmartBotButton; // 添加中级机器人按钮
+    [SerializeField] private Button addGuobiaoHeuristicBotButton; // 添加高级机器人按钮（请在 Inspector 中拖拽绑定）
     [SerializeField] private RoomConfigContainer roomConfigContainer; // 房间设置容器
     [SerializeField] private TMP_Dropdown botSpeedDropdown;
-    private TMP_Dropdown botLevelDropdown; // 电脑水平：与速度同行，运行时克隆补齐
     [SerializeField] private GameObject noRecordText;
     [SerializeField] private GameObject noSpectatorsText;
 
@@ -40,7 +39,6 @@ public partial class RoomPanel : MonoBehaviour {
         if (botSpeedDropdown != null) {
             botSpeedDropdown.onValueChanged.AddListener(BotSpeedChanged);
             EnsureBotSpeedOptions();
-            EnsureBotLevelControl();
         }
     }
 
@@ -70,6 +68,15 @@ public partial class RoomPanel : MonoBehaviour {
         if (roomInfo.room_rule != "guobiao") return false;
         string sub = string.IsNullOrEmpty(roomInfo.sub_rule) ? GuobiaoStandardSubRule : roomInfo.sub_rule;
         return sub == GuobiaoStandardSubRule || sub == GuobiaoGameState.BloodBattleSubRule;
+    }
+
+    // 高级机器人：国标/虹雀走高智能启发式；杭州家族直接用 hard 人设档。
+    private static bool SupportsHighLevelBot(RoomInfo roomInfo) {
+        if (SupportsHighPerformanceBot(roomInfo)) return true;
+        if (roomInfo == null) return false;
+        return roomInfo.room_rule == "hangzhou" || roomInfo.room_rule == "xiaoshan"
+            || roomInfo.room_rule == "shaoxing" || roomInfo.room_rule == "taizhou"
+            || roomInfo.room_rule == "yiwu";
     }
 
     public void GetRoomInfoResponse(bool success, string message, RoomInfo roomInfo) {
@@ -109,10 +116,14 @@ public partial class RoomPanel : MonoBehaviour {
                 username = userSettings.username;
             } else if (userId == 0) {
                 username = "麻雀罗伯特";
+            } else if (userId == 1) {
+                username = "摸切机器人";
+            } else if (userId == 5) {
+                username = "低级机器人";
             } else if (userId == 2) {
-                username = "牌效罗伯特";
+                username = "中级机器人";
             } else if (userId == 3) {
-                username = "高性能罗伯特";
+                username = "高级机器人";
             } else {
                 username = $"用户{userId}";
             }
@@ -157,14 +168,10 @@ public partial class RoomPanel : MonoBehaviour {
             botSpeedDropdown.SetValueWithoutNotify(BotSpeedIndex(roomInfo.bot_speed));
             botSpeedDropdown.interactable = isHost && !roomInfo.is_game_running;
         }
-        if (botLevelDropdown != null) {
-            botLevelDropdown.SetValueWithoutNotify(BotLevelIndex(roomInfo.bot_level));
-            botLevelDropdown.interactable = isHost && !roomInfo.is_game_running;
-        }
         bool canAddBot = allowBots && isHost && !roomInfo.is_game_running && seated < roomInfo.max_player;
-        bool heuristic = SupportsHighPerformanceBot(roomInfo);
+        bool supportsHighLevel = SupportsHighLevelBot(roomInfo);
         for (int i = 0; i < panels.Length; i++) {
-            panels[i].SetEmptySeatBotControls(canAddBot && i < maxPlayers, heuristic);
+            panels[i].SetEmptySeatBotControls(canAddBot && i < maxPlayers, supportsHighLevel);
         }
         if (allowBots) {
             UpdateBotHintTexts(roomInfo.player_list);
@@ -287,68 +294,8 @@ public partial class RoomPanel : MonoBehaviour {
         if (speed != lastRoomInfo.bot_speed) RoomNetworkManager.Instance.SetBotSpeed(lastRoomInfo.room_id, speed);
     }
 
-    private static readonly string[] BotLevelKeys = { "easy", "medium", "hard" };
-    private static readonly string[] BotLevelLabels = { "简单", "中等", "困难" };
-
-    private static int BotLevelIndex(string level) {
-        int index = System.Array.IndexOf(BotLevelKeys, level ?? "medium");
-        return index >= 0 ? index : 1;
-    }
-
-    private void BotLevelChanged(int index) {
-        if (lastRoomInfo == null) return;
-        // 与速度一致：以房间广播为准，失败请求不会留下本地草稿。
-        botLevelDropdown.SetValueWithoutNotify(BotLevelIndex(lastRoomInfo.bot_level));
-        if (lastRoomInfo.host_user_id != UserDataManager.Instance.UserId || lastRoomInfo.is_game_running) return;
-        string level = index >= 0 && index < BotLevelKeys.Length ? BotLevelKeys[index] : "medium";
-        if (level != lastRoomInfo.bot_level) RoomNetworkManager.Instance.SetBotLevel(lastRoomInfo.room_id, level);
-    }
-
-    // 「电脑水平」与「机器人速度」同一行：运行时克隆现有控件补齐，旧场景无需重烘。
-    private void EnsureBotLevelControl() {
-        if (botSpeedDropdown == null) return;
-        var row = botSpeedDropdown.transform.parent as RectTransform;
-        if (row == null) return;
-        botLevelDropdown = row.Find("BotLevel")?.GetComponent<TMP_Dropdown>();
-        if (botLevelDropdown == null) {
-            var sourceLabel = row.Find("Label");
-            if (sourceLabel != null) {
-                var label = Instantiate(sourceLabel.GetComponent<TMP_Text>(), row);
-                label.name = "LevelLabel";
-                label.text = "电脑水平";
-                SetBotControlRect(label.rectTransform, new Vector2(470, -11.5f), new Vector2(170, 52));
-            }
-            botLevelDropdown = Instantiate(botSpeedDropdown, row);
-            botLevelDropdown.name = "BotLevel";
-            botLevelDropdown.onValueChanged = new TMP_Dropdown.DropdownEvent();
-            SetBotControlRect((RectTransform)botLevelDropdown.transform, new Vector2(650, -7.5f), new Vector2(270, 60));
-            botLevelDropdown.ClearOptions();
-            botLevelDropdown.AddOptions(new System.Collections.Generic.List<string>(BotLevelLabels));
-            botLevelDropdown.template.sizeDelta = new Vector2(0, BotLevelLabels.Length * 52 + 8);
-            botLevelDropdown.SetValueWithoutNotify(1);
-            botLevelDropdown.RefreshShownValue();
-            botLevelDropdown.onValueChanged.AddListener(BotLevelChanged);
-        }
-        botLevelDropdown.gameObject.SetActive(true);
-        // 行加宽以容纳第二组控件；LayoutElement 兼容父级布局组驱动宽度的场景。
-        row.sizeDelta = new Vector2(920, 75);
-        var element = row.GetComponent<UnityEngine.UI.LayoutElement>();
-        if (element == null) element = row.gameObject.AddComponent<UnityEngine.UI.LayoutElement>();
-        element.preferredWidth = 920;
-        element.minHeight = 75;
-    }
-
-    private static void SetBotControlRect(RectTransform rect, Vector2 position, Vector2 size) {
-        rect.anchorMin = rect.anchorMax = new Vector2(0, 1);
-        rect.pivot = new Vector2(0, 1);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = size;
-        rect.localScale = Vector3.one;
-    }
-
     private void OnDestroy() {
         if (botSpeedDropdown != null) botSpeedDropdown.onValueChanged.RemoveListener(BotSpeedChanged);
-        if (botLevelDropdown != null) botLevelDropdown.onValueChanged.RemoveListener(BotLevelChanged);
         if (Instance == this) Instance = null;
     }
 
@@ -373,8 +320,9 @@ public partial class RoomPanel : MonoBehaviour {
         if (seatIndex < 0 || seatIndex >= lastRoomInfo.max_player
             || (seatIndex < seats.Length && seats[seatIndex] >= 0)) return;
         if (kind == 0) RoomNetworkManager.Instance.AddBotToRoom(lastRoomInfo.room_id, seatIndex);
+        else if (kind == 1) RoomNetworkManager.Instance.AddEasyBotToRoom(lastRoomInfo.room_id, seatIndex);
         else if (kind == 2) RoomNetworkManager.Instance.AddSmartBotToRoom(lastRoomInfo.room_id, seatIndex);
-        else if (kind == 3 && SupportsHighPerformanceBot(lastRoomInfo))
+        else if (kind == 3 && SupportsHighLevelBot(lastRoomInfo))
             RoomNetworkManager.Instance.AddGuobiaoHeuristicBotToRoom(lastRoomInfo.room_id, seatIndex);
     }
 }
