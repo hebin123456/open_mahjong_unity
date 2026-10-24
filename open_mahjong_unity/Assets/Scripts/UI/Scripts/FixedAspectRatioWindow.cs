@@ -395,11 +395,12 @@ public class FixedAspectRatio : MonoBehaviour {
     /// 牌桌左右可能被裁。按 targetAspectRatio/target 放大竖直 FOV，
     /// 使水平视野与 16:9 构图一致；恢复 16:9 目标时还原原始 FOV。
     /// 全屏铺满（不 letterbox）的近方形屏同样适用——视口更方，水平视野同样变窄。
+    /// 计算用相机实际视口比例（letterbox 后的 pixelRect），而不是 Screen 比例与
+    /// targetAspect 的换算值：设备上报尺寸偏差时旧写法可能直接跳过补偿，展开态
+    /// 左右两墩牌被裁出屏。另留 12% 水平余量，牌墩贴边时仍完整可见。
     /// </summary>
     private void ApplyCameraFov(float targetAspect, Camera[] cameras) {
         if (targetAspect <= 0f) return;
-        bool widen = targetAspect < targetAspectRatio;
-        float fovScale = targetAspectRatio / targetAspect;
         for (int i = 0; i < cameras.Length; i++) {
             Camera camera = cameras[i];
             if (camera == null || camera.orthographic) continue;
@@ -407,7 +408,14 @@ public class FixedAspectRatio : MonoBehaviour {
                 baseFov = camera.fieldOfView;
                 cameraBaseFov.Add(camera, baseFov);
             }
-            if (widen) {
+            float viewportAspect = camera.pixelHeight > 0
+                ? camera.pixelWidth / (float)camera.pixelHeight
+                : targetAspect;
+            float fovScale = targetAspectRatio / Mathf.Max(0.01f, viewportAspect);
+            // 只在视口明显比 16:9 更方（折叠屏展开态 4:3 = 1.33）时留余量；
+            // 16:9 与更宽的折叠外屏（1.78~2.24）保持原始构图，牌大小不变
+            if (viewportAspect < 1.6f) fovScale *= 1.12f;
+            if (fovScale > 1.0001f) {
                 float tanHalf = Mathf.Tan(baseFov * 0.5f * Mathf.Deg2Rad) * fovScale;
                 camera.fieldOfView = 2f * Mathf.Atan(tanHalf) * Mathf.Rad2Deg;
             } else {
