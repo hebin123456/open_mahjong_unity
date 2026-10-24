@@ -62,29 +62,33 @@ public static class CharacterCatalog {
     }
 
     /// <summary>
-    /// 机器人按 user_id 档位取角色：0/1 摸切→阿土伯，2 低级牌效→阿土仔，
-    /// 3 高性能/高级→钱夫人，其它→孙小美。
+    /// 机器人头像随机分配：用对局种子 + user_id 取角色。
+    /// 同一局内稳定不跳变，不同机器人（uid 连续）落在不同角色上；
+    /// 每局 gamestate_id 不同，角色组合随之变化。
     /// </summary>
-    public static int ForBot(int botUserId) {
-        switch (botUserId) {
-            case 0:
-            case 1:
-                return 3;
-            case 2:
-                return 16;
-            case 3:
-            case 4:
-                return 5;
-            default:
-                return DefaultId;
-        }
+    public static int ForBot(int botUserId, int seed = 0) {
+        int index = ((seed & 0x7FFFFFFF) + Mathf.Max(0, botUserId)) % Entries.Length;
+        return Entries[index].Id;
+    }
+
+    /// <summary>
+    /// 从 gamestate_id 取稳定哈希做对局种子。
+    /// 不用 string.GetHashCode：.NET 的字符串哈希跨进程随机化，头像会每局乱跳。
+    /// </summary>
+    public static int SeedFrom(string gamestateId) {
+        if (string.IsNullOrEmpty(gamestateId)) return 0;
+        int hash = 17;
+        for (int i = 0; i < gamestateId.Length; i++) hash = hash * 31 + gamestateId[i];
+        return hash & 0x7FFFFFFF;
     }
 
     /// <summary>
     /// 按 user_id 取头像 id：单机版真人是 101 起、机器人是 1~4，
-    /// 所以 <=10 走机器人档位映射，其余用玩家本地自选角色。
+    /// 所以 <=10 走机器人随机分配，其余用玩家本地自选角色。
     /// </summary>
-    public static int ResolveProfileId(int userId) {
-        return userId > 0 && userId <= 10 ? ForBot(userId) : ConfigManager.PlayerCharacterId;
+    public static int ResolveProfileId(int userId, int botSeed = 0) {
+        return userId > 0 && userId <= 10
+            ? ForBot(userId, botSeed)
+            : ConfigManager.PlayerCharacterId;
     }
 }

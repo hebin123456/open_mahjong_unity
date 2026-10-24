@@ -226,10 +226,12 @@ public partial class GameCanvas : MonoBehaviour {
             Destroyer.Instance.AddToDestroyer(child);
         }
         // 通过面板组件设置玩家信息
+        // 机器人头像随机分配：用本局 gamestate_id 做种子，局内稳定、每局不同
+        int botSeed = CharacterCatalog.SeedFrom(gameInfo != null ? gameInfo.gamestate_id : null);
         foreach (var player in gameInfo.players_info){
-            // 单机版：真人头像用本地自选角色，机器人按档位映射角色，覆盖服务端默认的 1
+            // 单机版：真人头像用本地自选角色，机器人按种子随机分配，覆盖服务端默认的 1
             if (ConfigManager.SoloMode && player != null) {
-                player.profile_used = CharacterCatalog.ResolveProfileId(player.user_id);
+                player.profile_used = CharacterCatalog.ResolveProfileId(player.user_id, botSeed);
             }
             string position = indexToPosition[player.player_index];
             GamePlayerPanel targetPanel = null;
