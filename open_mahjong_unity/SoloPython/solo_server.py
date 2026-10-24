@@ -56,15 +56,20 @@ def recent_events() -> str:
 # 真人座位：user_id 必须 > 10（引擎用 user_id <= 10 判定机器人）
 HUMAN_USER_ID = 101
 HUMAN_USERNAME = "我"
-BOT_USER_IDS = [1, 2, 3, 5]
-# 演示局（教学回放）用 4 个机器人补满牌桌；uid 4 只在演示局出现，普通房间不会加到它。
-DEMO_BOT_IDS = [1, 2, 3, 4]
+# 机器人档位固定占用 1-4：1=摸切、2=低级、3=中级、4=高级。
+# 0 是线上引擎的旧摸切保留位，单机版不再使用。
+BOT_USER_IDS = [1, 2, 3, 4]
+# 缺座自动补机器人时的默认顺序：摸切 + 中级 + 高级，低级留给房主手动选。
+BOT_FILL_ORDER = (1, 3, 4, 2)
+# 演示局（教学回放）用 4 个机器人补满牌桌；uid 9 只在演示局出现，普通房间不会加到它。
+DEMO_BOT_IDS = [1, 3, 4, 9]
 
 # 单机房间标识：客户端建房/开局复用线上 `room/*` 协议。房间号随机 3 位数字，
 # 局域网内已有相同房号时重新随机；SOLO_ROOM_ID 仅作为兜底占位。
 SOLO_ROOM_ID = "solo-hangzhou"
 SOLO_INSTANCE_ID = "solo-instance-1"
-BOT_USERNAMES = {1: "摸切机器人", 2: "中级机器人", 3: "高级机器人", 4: "演示助教", 5: "低级机器人"}
+BOT_USERNAMES = {0: "麻雀罗伯特", 1: "摸切机器人", 2: "低级机器人",
+                 3: "中级机器人", 4: "高级机器人", 9: "演示助教"}
 
 # 大厅可选规则：萧山麻将完全复用杭州引擎，引擎内部恒按 hangzhou 处理；
 # 国标麻将使用独立的 GuobiaoGameState 引擎与 gamestate/GB/* 协议通道。
@@ -93,19 +98,19 @@ RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将",
 VARIANT_SUB_RULES = {XIAOSHAN_RULE: XIAOSHAN_SUB_RULE, SHAOXING_RULE: SHAOXING_SUB_RULE,
                      TAIZHOU_RULE: TAIZHOU_SUB_RULE, YIWU_RULE: YIWU_SUB_RULE}
 
-# 四种加机器人入口对应的机器人 id（1=摸切、5=低级、2=中级、3=高级）。
+# 四种加机器人入口对应的机器人 id（1=摸切、2=低级、3=中级、4=高级）。
 # 同一水平的机器人可以重复添加（如三个摸切），座位里会出现重复 user_id。
-BOT_PREFERRED_IDS = {"room/add_easy_bot": 5, "room/add_guobiao_heuristic_bot": 3,
-                     "room/add_smart_bot": 2, "room/add_bot": 1}
+BOT_PREFERRED_IDS = {"room/add_easy_bot": 2, "room/add_guobiao_heuristic_bot": 4,
+                     "room/add_smart_bot": 3, "room/add_bot": 1}
 
-# 四个机器人各有人设难度（杭州家族 AI）：
+# 四个机器人各有人设难度：
 #   1=摸切机器人 → "moqie"  纯摸切流，不杠不鸣，永远打刚摸的牌（陪练）
-#   5=低级机器人 → "easy"   前三候选随机切牌、吃碰放宽
-#   2=中级机器人 → "medium" 标准牌效
-#   3=高级机器人 → "hard"   按进张数严格决策
+#   2=低级机器人 → "easy"   前三候选随机切牌、吃碰放宽
+#   3=中级机器人 → "medium" 标准牌效
+#   4=高级机器人 → "hard"   按进张数严格决策
 # 房主在房间里显式改过机器人难度（room/set_bot_level）后统一覆盖人设；
-# 不在人设表内的机器人（如 4=演示助教）始终走房间级 bot_level。
-BOT_SEAT_LEVELS = {1: "moqie", 5: "easy", 2: "medium", 3: "hard"}
+# 不在人设表内的机器人（如 9=演示助教）始终走房间级 bot_level。
+BOT_SEAT_LEVELS = {0: "moqie", 1: "moqie", 2: "easy", 3: "medium", 4: "hard"}
 
 
 def _bot_levels_for_players(players, room=None):
@@ -392,10 +397,10 @@ def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
     opts = opts or {}
     # 座位以房间当前人员为准：房主开局时若仍缺人，处理层已自动补满机器人
     room = server._room
-    players = list(room["player_list"]) if room is not None else [HUMAN_USER_ID] + BOT_USER_IDS[:3]
+    players = list(room["player_list"]) if room is not None else [HUMAN_USER_ID] + list(BOT_FILL_ORDER[:3])
     # 国标三麻为 3 家；杭州/萧山/国标均为 4 家
     while len(players) < (3 if (rule == GUOBIAO_RULE and sub == "guobiao/sanma") else 4):
-        for bot_id in BOT_USER_IDS:
+        for bot_id in BOT_FILL_ORDER:
             if bot_id not in players:
                 players.append(bot_id)
                 break
@@ -572,7 +577,7 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
         players = [host_uid]
     else:
         # 纯单机建房直接补满：默认按摸切/中级/高级的顺序，低级留给房主手动选择。
-        players = [host_uid] + BOT_USER_IDS[:max_player - 1]
+        players = [host_uid] + list(BOT_FILL_ORDER[:max_player - 1])
     info = {
         "room_id": room_id,
         "instance_id": SOLO_INSTANCE_ID,
@@ -908,7 +913,7 @@ async def _handle_start_demo(server: SoloServer, conn: WsConnection, message: di
 # ----------------------------------------------------------------------------
 # 交互式新手教程：真人坐庄 + 固定教学牌墙 + 行动窗口推送提示（solo/start_tutorial）
 # ----------------------------------------------------------------------------
-TUTORIAL_BOTS = [1, 2, 3]  # 教程座位 1-3 固定为机器人，真人固定 0 号位（庄家）
+TUTORIAL_BOTS = [1, 3, 4]  # 教程座位 1-3 固定为摸切/中级/高级机器人，真人固定 0 号位（庄家）
 
 # 牌 id：万 11-19 / 筒 21-29 / 条 31-39 / 东南西北 41-44 / 中 45、白 46（财神）、发 47
 _TILE_NAMES = {41: "东风", 42: "南风", 43: "西风", 44: "北风", 45: "红中", 46: "白板", 47: "发财"}
@@ -1553,7 +1558,7 @@ async def _handle_start_game(server: SoloServer, conn: WsConnection, message: di
     # 缺人的座位自动补机器人，保证引擎能凑齐一桌
     changed = False
     while len(players) < max_player:
-        for bot_id in BOT_USER_IDS:
+        for bot_id in BOT_FILL_ORDER:
             if bot_id not in players:
                 players.append(bot_id)
                 changed = True

@@ -74,6 +74,8 @@ public partial class RoomPanel : MonoBehaviour {
     private static bool SupportsHighLevelBot(RoomInfo roomInfo) {
         if (SupportsHighPerformanceBot(roomInfo)) return true;
         if (roomInfo == null) return false;
+        // 国标其它子规则也保留高级入口；服务端无启发式时自动退回牌效档。
+        if (roomInfo.room_rule == "guobiao") return true;
         return roomInfo.room_rule == "hangzhou" || roomInfo.room_rule == "xiaoshan"
             || roomInfo.room_rule == "shaoxing" || roomInfo.room_rule == "taizhou"
             || roomInfo.room_rule == "yiwu";
@@ -118,11 +120,11 @@ public partial class RoomPanel : MonoBehaviour {
                 username = "麻雀罗伯特";
             } else if (userId == 1) {
                 username = "摸切机器人";
-            } else if (userId == 5) {
-                username = "低级机器人";
             } else if (userId == 2) {
-                username = "中级机器人";
+                username = "低级机器人";
             } else if (userId == 3) {
+                username = "中级机器人";
+            } else if (userId == 4) {
                 username = "高级机器人";
             } else {
                 username = $"用户{userId}";

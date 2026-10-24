@@ -2,6 +2,7 @@
 # 基于向听数 + 进张数的牌效率决策，支持吃碰推进和牌形
 # 能和则和、能补花则补花、切牌/吃碰根据评分决策
 import asyncio
+import random
 from .pacing import paced_bot, submit_bot_action, DEFAULT_BOT_DELAY
 import logging
 from ..hand_slot_utils import has_draw_slot, infer_bot_cut_class
@@ -20,7 +21,36 @@ _BOT_DELAY = DEFAULT_BOT_DELAY
 _RON_HU_ACTIONS = ("hu", "hu_first", "hu_second", "hu_third")
 
 
-def _choose_hand_action(hand, combs, meld_count, visible, dingque, action_list):
+EASY_CLAIM_MARGIN = 18
+
+
+def _easy_cut_tile(hand, meld_count, visible):
+    """简单档：按切后牌型评分排序，从前三候选里随机选一张。"""
+    if not hand:
+        return None
+    scored = []
+    seen = set()
+    for index, tile in enumerate(hand):
+        if tile in seen:
+            continue
+        seen.add(tile)
+        remaining = hand[:index] + hand[index + 1:]
+        scored.append((evaluate_hand(remaining, meld_count, visible), tile))
+    if not scored:
+        return hand[-1]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return random.choice(scored[:3])[1]
+
+
+def _claim_improves(score, best_score, level):
+    """简单档放宽吃碰门槛：同向听且进张差距不大就鸣牌。"""
+    if score > best_score:
+        return True
+    return (level == "easy" and score[0] == best_score[0]
+            and score[1] + EASY_CLAIM_MARGIN >= best_score[1])
+
+
+def _choose_hand_action(hand, combs, meld_count, visible, dingque, action_list, level="medium"):
     """Pure CPU decision over snapshots; returns (action, tile)."""
     hand = list(hand)
     combs = list(combs)
@@ -64,12 +94,16 @@ def _choose_hand_action(hand, combs, meld_count, visible, dingque, action_list):
                         return "jiagang", tile
     if "cut" in actions and hand:
         cut_hand = cut_candidate_hand(hand, dingque)
+        if level == "easy":
+            tile = _easy_cut_tile(cut_hand, meld_count, visible)
+            if tile is not None:
+                return "cut", tile
         tile, _ = find_best_cut(cut_hand, meld_count, visible)
         return "cut", tile
     return "pass", None
 
 
-def _choose_claim_action(hand, meld_count, visible, action_list, cut_tile):
+def _choose_claim_action(hand, meld_count, visible, action_list, cut_tile, level="medium"):
     hand = list(hand)
     actions = set(action_list)
     best_action = "pass"
@@ -79,7 +113,7 @@ def _choose_claim_action(hand, meld_count, visible, action_list, cut_tile):
         test.remove(cut_tile)
         test.remove(cut_tile)
         score = find_best_cut_score(test, meld_count + 1, visible) if test else (-999, -1)
-        if score > best_score:
+        if _claim_improves(score, best_score, level):
             best_action, best_score = "peng", score
     for action, need in (
         ("chi_left", (cut_tile - 2, cut_tile - 1)),
@@ -97,14 +131,14 @@ def _choose_claim_action(hand, meld_count, visible, action_list, cut_tile):
             test.remove(tile)
         if valid:
             score = find_best_cut_score(test, meld_count + 1, visible) if test else (-999, -1)
-            if score > best_score:
+            if _claim_improves(score, best_score, level):
                 best_action, best_score = action, score
     if "gang" in actions and hand.count(cut_tile) >= 3:
         test = hand[:]
         for _ in range(3):
             test.remove(cut_tile)
         score = evaluate_hand(test, meld_count + 1, visible)
-        if score > best_score:
+        if _claim_improves(score, best_score, level):
             best_action = "gang"
     return best_action
 
@@ -129,7 +163,8 @@ async def _wait_until_actionable(game_state, player_index: int, attempts: int = 
 
 # 牌效AI机器人，支持补花询问，手牌询问，其他玩家询问，抢杠询问
 @paced_bot(lambda: _BOT_DELAY)
-async def smart_bot_action(game_state, player_index: int, action_list: list, game_status: str):
+async def smart_bot_action(game_state, player_index: int, action_list: list, game_status: str,
+                           level: str = "medium"):
     """
     牌效AI自动操作
     规则：能和必和 > 能补花必补花 > 牌效率评估切牌/吃碰杠
@@ -139,6 +174,7 @@ async def smart_bot_action(game_state, player_index: int, action_list: list, gam
         player_index: 玩家索引
         action_list: 可用操作列表
         game_status: 游戏状态
+        level: easy 时切牌随机化、吃碰门槛放宽；medium 为标准牌效
     """
     try:
         current_player = game_state.player_list[player_index]
@@ -152,19 +188,19 @@ async def smart_bot_action(game_state, player_index: int, action_list: list, gam
             if not await _wait_until_actionable(game_state, player_index):
                 logger.warning(f"牌效AI {player_index} ({current_player.username}) 手牌询问未进入 waiting_players_list，放弃操作")
                 return
-            await _handle_hand_action(game_state, player_index, action_list, current_player)
+            await _handle_hand_action(game_state, player_index, action_list, current_player, level)
             return
 
         elif game_status == "onlycut_after_action":
             if not await _wait_until_actionable(game_state, player_index):
                 logger.warning(f"牌效AI {player_index} ({current_player.username}) 鸣牌后未进入 waiting_players_list，放弃操作")
                 return
-            await _handle_hand_action(game_state, player_index, action_list, current_player)
+            await _handle_hand_action(game_state, player_index, action_list, current_player, level)
             return
 
         elif game_status == "waiting_action_after_cut":
             # 他家切牌后：和牌 > 碰/吃/明杠评估 > pass
-            await _handle_after_cut(game_state, player_index, action_list, current_player)
+            await _handle_after_cut(game_state, player_index, action_list, current_player, level)
             return
 
         elif game_status == "waiting_action_qianggang":
@@ -193,7 +229,7 @@ async def smart_bot_action(game_state, player_index: int, action_list: list, gam
         logger.error(f"牌效AI {player_index} 自动操作失败: {e}", exc_info=True)
 
 
-async def _handle_hand_action(game_state, player_index, action_list, player):
+async def _handle_hand_action(game_state, player_index, action_list, player, level="medium"):
     """摸牌后/吃碰后的手牌阶段：补花 > 和牌 > 暗杠/加杠 > 牌效切牌"""
     # 有花牌必须先补花（手牌含花牌时不能做其他操作）
     if "buhua" in action_list:
@@ -221,6 +257,7 @@ async def _handle_hand_action(game_state, player_index, action_list, player):
         tuple(visible),
         getattr(player, "dingque_suit", 0),
         tuple(action_list),
+        level,
     )
     if not bot_action_is_current(game_state, player_index, expected_tick):
         return
@@ -236,7 +273,7 @@ async def _handle_hand_action(game_state, player_index, action_list, player):
         return
 
 
-async def _handle_after_cut(game_state, player_index, action_list, player):
+async def _handle_after_cut(game_state, player_index, action_list, player, level="medium"):
     """他家切牌后的响应阶段：和牌 > 碰/吃/明杠评估 > pass"""
     if not await _wait_until_actionable(game_state, player_index):
         logger.warning(f"牌效AI {player_index} ({player.username}) 切牌后询问未进入 waiting_players_list，放弃操作")
@@ -271,6 +308,7 @@ async def _handle_after_cut(game_state, player_index, action_list, player):
         tuple(visible),
         tuple(action_list),
         cut_tile,
+        level,
     )
     if not bot_action_is_current(game_state, player_index, expected_tick):
         return
@@ -295,6 +333,11 @@ async def _handle_qianggang(game_state, player_index, action_list, player):
     if "pass" in action_list:
         logger.info(f"牌效AI {player_index} ({player.username}) 选择 pass（抢杠）")
         await submit_bot_action(get_ai_action, game_state, player_index, "pass", None, None, None, None)
+
+
+async def easy_bot_action(game_state, player_index: int, action_list: list, game_status: str):
+    """简单档机器人：复用牌效骨架，切牌随机化、吃碰门槛放宽。"""
+    await smart_bot_action(game_state, player_index, action_list, game_status, level="easy")
 
 
 async def _handle_buhua_round(game_state, player_index, action_list, player):

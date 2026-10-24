@@ -939,7 +939,7 @@ public partial class RoomNetworkManager : MonoBehaviour {
     }
 
     /// <summary>
-    /// 添加高级机器人（user_id=3）：国标/虹雀走高性能启发式，杭州家族走 hard 人设
+    /// 添加高级机器人（user_id=4）：国标/虹雀走高性能启发式，杭州家族走 hard 人设
     /// </summary>
     public async void AddGuobiaoHeuristicBotToRoom(string roomId, int? seatIndex = null) {
         var request = new AddBotToRoomRequest {

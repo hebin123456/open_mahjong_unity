@@ -6,7 +6,7 @@ from ..public.lifecycle import start_owned_task
 from . import blood_battle
 from ..public.ai.auto_cut_ai import auto_cut_action
 from ..public.offline import offline_auto_action
-from ..public.ai.smart_bot_ai import smart_bot_action
+from ..public.ai.smart_bot_ai import easy_bot_action, smart_bot_action
 from ..public.ai.guobiao_heuristic_ai import guobiao_heuristic_action
 from .combination_mask_view import (
     get_combination_fields_for_viewer,
@@ -238,25 +238,35 @@ async def broadcast_ask_hand_action(self):
                     start_owned_task(self, offline_auto_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
                 continue
             
-            # 如果是机器人，启动自动操作并跳过广播；保留 user_id < 10 整段视为机器人
-            if current_player.user_id == 0:
+            # 如果是机器人，启动自动操作并跳过广播；1=摸切、2=低级、3=中级、4=高级
+            bot_uid = current_player.user_id
+            if bot_uid in (0, 1):
                 if player_actions:
                     logger.info(f"派发摸切机器人操作 seat={seat_index} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
                     start_owned_task(self, auto_cut_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
                 continue
-            elif current_player.user_id == 2:
+            elif bot_uid == 2:
                 if player_actions:
-                    logger.info(f"派发牌效机器人操作 seat={seat_index} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
+                    logger.info(f"派发低级机器人操作 seat={seat_index} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
+                    start_owned_task(self, easy_bot_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
+                continue
+            elif bot_uid == 3:
+                if player_actions:
+                    logger.info(f"派发中级机器人操作 seat={seat_index} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
                     start_owned_task(self, smart_bot_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
                 continue
-            elif current_player.user_id == 3:
+            elif bot_uid == 4:
                 if player_actions:
-                    logger.info(f"派发高性能罗伯特操作 seat={seat_index} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
-                    start_owned_task(self, guobiao_heuristic_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
+                    # 高性能启发式只覆盖标准/血战；其它国标变种高级档退回牌效，避免卡死。
+                    heuristic = getattr(self, "sub_rule", "") in ("guobiao/standard", "guobiao/blood_battle")
+                    logger.info(f"派发高级机器人操作 seat={seat_index} heuristic={heuristic} status={bot_ask_hand_game_status(self, seat_index)} actions={player_actions}")
+                    action_task = (guobiao_heuristic_action if heuristic else smart_bot_action)(
+                        self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index))
+                    start_owned_task(self, action_task)
                 continue
-            elif current_player.user_id < 10:
+            elif bot_uid < 10:
                 if player_actions:
-                    logger.warning(f"未知保留机器人 user_id={current_player.user_id}，按摸切机器人处理 seat={seat_index} actions={player_actions}")
+                    logger.warning(f"未知保留机器人 user_id={bot_uid}，按摸切机器人处理 seat={seat_index} actions={player_actions}")
                     start_owned_task(self, auto_cut_action(self, seat_index, player_actions, bot_ask_hand_game_status(self, seat_index)))
                 continue
             
@@ -309,25 +319,35 @@ async def broadcast_ask_other_action(self, remaining_time_override: Optional[int
                     start_owned_task(self, offline_auto_action(self, seat_index, player_actions, self.game_status))
                 continue
             
-            # 如果是机器人，启动自动操作并跳过广播；保留 user_id < 10 整段视为机器人
-            if current_player.user_id == 0:
+            # 如果是机器人，启动自动操作并跳过广播；1=摸切、2=低级、3=中级、4=高级
+            bot_uid = current_player.user_id
+            if bot_uid in (0, 1):
                 if player_actions:
                     logger.info(f"派发摸切机器人操作 seat={seat_index} status={self.game_status} actions={player_actions}")
                     start_owned_task(self, auto_cut_action(self, seat_index, player_actions, self.game_status))
                 continue
-            elif current_player.user_id == 2:
+            elif bot_uid == 2:
                 if player_actions:
-                    logger.info(f"派发牌效机器人操作 seat={seat_index} status={self.game_status} actions={player_actions}")
+                    logger.info(f"派发低级机器人操作 seat={seat_index} status={self.game_status} actions={player_actions}")
+                    start_owned_task(self, easy_bot_action(self, seat_index, player_actions, self.game_status))
+                continue
+            elif bot_uid == 3:
+                if player_actions:
+                    logger.info(f"派发中级机器人操作 seat={seat_index} status={self.game_status} actions={player_actions}")
                     start_owned_task(self, smart_bot_action(self, seat_index, player_actions, self.game_status))
                 continue
-            elif current_player.user_id == 3:
+            elif bot_uid == 4:
                 if player_actions:
-                    logger.info(f"派发高性能罗伯特操作 seat={seat_index} status={self.game_status} actions={player_actions}")
-                    start_owned_task(self, guobiao_heuristic_action(self, seat_index, player_actions, self.game_status))
+                    # 高性能启发式只覆盖标准/血战；其它国标变种高级档退回牌效，避免卡死。
+                    heuristic = getattr(self, "sub_rule", "") in ("guobiao/standard", "guobiao/blood_battle")
+                    logger.info(f"派发高级机器人操作 seat={seat_index} heuristic={heuristic} status={self.game_status} actions={player_actions}")
+                    action_task = (guobiao_heuristic_action if heuristic else smart_bot_action)(
+                        self, seat_index, player_actions, self.game_status)
+                    start_owned_task(self, action_task)
                 continue
-            elif current_player.user_id < 10:
+            elif bot_uid < 10:
                 if player_actions:
-                    logger.warning(f"未知保留机器人 user_id={current_player.user_id}，按摸切机器人处理 seat={seat_index} actions={player_actions}")
+                    logger.warning(f"未知保留机器人 user_id={bot_uid}，按摸切机器人处理 seat={seat_index} actions={player_actions}")
                     start_owned_task(self, auto_cut_action(self, seat_index, player_actions, self.game_status))
                 continue
             

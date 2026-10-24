@@ -149,16 +149,12 @@ class GuobiaoGameState:
         # 创建玩家列表 包含GuobiaoPlayer类
         self.player_list: List[GuobiaoPlayer] = []
         player_settings = room_data.get("player_settings", {})
+        bot_name_defaults = {0: "麻雀罗伯特", 1: "摸切机器人", 2: "低级机器人",
+                             3: "中级机器人", 4: "高级机器人"}
         for user_id in room_data["player_list"]:
             player_setting = player_settings.get(user_id, {})
-            if user_id == 0:
-                username = "麻雀罗伯特"
-            elif user_id == 2:
-                username = "牌效罗伯特"
-            elif user_id == 3:
-                username = "高性能罗伯特"
-            else:
-                username = player_setting.get("username", f"用户{user_id}")
+            username = (player_setting.get("username")
+                        or bot_name_defaults.get(user_id, f"用户{user_id}"))
             player = GuobiaoPlayer(user_id, username, [], room_data["round_timer"])
             # 初始化玩家使用的设置数据
             player.title_used = player_setting.get("title_id", 1)
