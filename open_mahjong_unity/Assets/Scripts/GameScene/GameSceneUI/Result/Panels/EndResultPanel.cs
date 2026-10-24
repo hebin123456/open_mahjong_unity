@@ -1445,4 +1445,38 @@ public class EndResultPanel : MonoBehaviour {
         RightUserName.text = "";
         RightScore.text = "";
     }
+
+    [Header("画布自适应（折叠屏）")]
+    [Tooltip("画布逻辑宽小于面板设计宽时整体等比缩小，避免左右出屏；1920 及以上保持 1:1。")]
+    [SerializeField] private float canvasFitMargin = 8f;
+    private RectTransform fitRectTransform;
+    private float appliedCanvasFitScale = -1f;
+
+    private void Update() {
+        FitPanelIntoCanvas();
+    }
+
+    /// <summary>
+    /// 结算面板是挂在 100×100 锚点上的固定 1920×1080 版式（拉伸锚 + sizeDelta
+    /// 1820×980），荣耀 Magic V5 展开内屏画布逻辑宽只有 ~1499，左右各溢出
+    /// ~210px（牌型行、番种列表、总计面板、确认按钮都被裁）。整体等比缩小根
+    /// 节点让内容完整入屏；画布宽于设计值时不缩放，PC/折叠横屏零回归。
+    /// </summary>
+    private void FitPanelIntoCanvas() {
+        if (fitRectTransform == null) fitRectTransform = transform as RectTransform;
+        if (fitRectTransform == null) return;
+        Canvas canvas = fitRectTransform.GetComponentInParent<Canvas>();
+        if (canvas == null) return;
+        RectTransform canvasRect = canvas.transform as RectTransform;
+        if (canvasRect == null) return;
+        Vector2 canvasSize = canvasRect.rect.size;
+        float panelWidth = fitRectTransform.rect.width; // 设计宽 1920（父锚点固定 100×100）
+        if (canvasSize.x <= 1f || panelWidth <= 1f) return;
+        float target = canvasSize.x >= panelWidth
+            ? 1f
+            : Mathf.Max(0.4f, (canvasSize.x - canvasFitMargin * 2f) / panelWidth);
+        if (Mathf.Abs(target - appliedCanvasFitScale) < 0.001f) return;
+        appliedCanvasFitScale = target;
+        fitRectTransform.localScale = new Vector3(target, target, 1f);
+    }
 }
