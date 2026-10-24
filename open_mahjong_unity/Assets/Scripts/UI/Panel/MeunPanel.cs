@@ -31,6 +31,16 @@ public class MeunPanel : MonoBehaviour {
         lastMenuCanvasSize = size;
         if (menuLeftColumn == null) menuLeftColumn = transform.Find("GameObject") as RectTransform;
         if (menuRightColumn == null) menuRightColumn = transform.Find("RoomListPanel/GameObject") as RectTransform;
+        // 房间列表（RoomList）是拉伸锚 + 负 sizeDelta，左缘恒在 442，不随画布宽变化；
+        // 左栏右缘 = 画布宽/2 - 537，逻辑宽超过 ~1958（折叠屏外屏横持 / 21:9 手机）
+        // 就会压住列表左缘，条目里"玩家1"座位行开头被盖。此时左栏往左收回保持
+        // 8px 间隙，同时顶边恒距画布顶 70（1920 基线时两式都还原场景设计位）。
+        float overlap = size.x * 0.5f - 536.8f - (442f - 8f);
+        if (overlap > 0f && menuLeftColumn != null) {
+            menuLeftColumn.anchoredPosition = new Vector2(-736f - overlap, size.y * 0.5f - 511.4f);
+        } else if (menuLeftColumn != null) {
+            menuLeftColumn.anchoredPosition = new Vector2(-736f, 28f);
+        }
         UiRectClamp.ClampIntoCanvas(menuLeftColumn);
         UiRectClamp.ClampIntoCanvas(menuRightColumn);
     }
