@@ -6,8 +6,8 @@ from ..public.tactical_claim import tactical_force_pass_is_live, tactical_mark_p
 async def handle_action(server, connection_id, message, websocket):
     state = server.gamestate_manager.get_game_state_by_gamestate_id(message.get("gamestate_id"))
     connection = server.players.get(connection_id)
-    # 萧山麻将复用同一杭州族引擎（同一出站通道），故两者都接受。
-    if state is None or state.room_rule not in ("hangzhou", "xiaoshan") or connection is None:
+    # 杭州家族（萧山/绍兴/台州/义乌）复用同一引擎与出站通道，一并接受。
+    if state is None or state.room_rule not in ("hangzhou", "xiaoshan", "shaoxing", "taizhou", "yiwu") or connection is None:
         return
     index = next((i for i, p in enumerate(state.player_list) if p.user_id == connection.user_id), None)
     if index is None:

@@ -17,6 +17,7 @@ DEBUG_SCENARIOS = (
     "chi_peng_protect",
     "tactical_claim",
     "buhua_8flowers",
+    "solo_tutorial",
 )
 
 # 真人固定座位；未列出的场景不旋转（保持进房顺序）
@@ -74,7 +75,15 @@ def get_debug_buhua_start_index(game_state) -> int:
 
 def apply_guobiao_debug_hands(game_state) -> None:
     scenario = resolve_debug_scenario(game_state)
-    if scenario == "buhua_8flowers":
+    if scenario == "solo_tutorial":
+        # 新手教程：由 solo_server 注入的 tutorial_hands 固定四家手牌
+        # （庄家/真人 14 张，闲家 13 张），座位保持进房顺序不旋转。
+        hands = getattr(game_state, "tutorial_hands", None)
+        if not hands or len(hands) != len(game_state.player_list):
+            raise ValueError("solo_tutorial 场景需要与玩家数等长的 tutorial_hands")
+        for player, hand in zip(game_state.player_list, hands):
+            player.hand_tiles = list(hand)
+    elif scenario == "buhua_8flowers":
         _apply_buhua_8flowers(game_state.player_list)
     elif scenario == "chi_peng_protect":
         _apply_chi_peng_protect(game_state.player_list)
@@ -86,7 +95,26 @@ def apply_guobiao_debug_hands(game_state) -> None:
 
 def prepare_debug_wall(game_state) -> None:
     """发牌扣山后的牌山微调（仅部分场景）。"""
-    if resolve_debug_scenario(game_state) != "qi_dui_tenpai_1m":
+    scenario = resolve_debug_scenario(game_state)
+    if scenario == "solo_tutorial":
+        # 教程剧本：把关键牌顶到牌山指定摸牌槽（1 起），让「他家摸进孤张必打」
+        # 或「庄家第 N 摸自摸」按预期发生。前面的槽位用中/发/白散张填充，
+        # 机器人手里这些牌都只有单张，摸到第二张成对也绝不会鸣牌。
+        top = getattr(game_state, "tutorial_wall_top", None)
+        if not top:
+            return
+        slot, tile = int(top[0]), int(top[1])
+        wall = game_state.tiles_list
+        rest = [t for t in wall if t != tile]
+        fillers = [t for t in (45, 47, 46) if t != tile]
+        pos = max(0, slot - 1)
+        while len(fillers) < pos:
+            fillers.append(fillers[len(fillers) % len(fillers)])
+        game_state.tiles_list[:] = rest[:pos] + [tile] + rest[pos:]
+        for i, filler in enumerate(fillers[:pos]):
+            game_state.tiles_list[i] = filler
+        return
+    if scenario != "qi_dui_tenpai_1m":
         return
     # 剩余 1 万尽量顶到牌山前部，便于摸进自摸测听
     wall = game_state.tiles_list

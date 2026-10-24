@@ -22,6 +22,8 @@ public class HeaderPanel : MonoBehaviour {
 
     // 单机「新手教程」入口：场景里没有现成按钮，运行时克隆战绩按钮生成（见 AttachSoloTutorialButton）
     private HeaderButton soloTutorialButton;
+    // 单机「教学演示」入口：克隆「新手教程」按钮生成，插在其右侧
+    private HeaderButton soloDemoButton;
     [Tooltip("「正在对局中」的红色提醒按钮所使用的底色")]
     [SerializeField] private Color backToGameTintColor = new Color(0.92f, 0.34f, 0.34f);
     [Header("轮到自己操作时的提醒闪烁")]
@@ -73,9 +75,10 @@ public class HeaderPanel : MonoBehaviour {
 
         ApplySoloModeVisibility();
 
-        // 单机：在「战绩」后面插入「新手教程」入口（克隆战绩按钮，样式与导航栏一致）
+        // 单机：在「战绩」后面插入「新手教程」「教学演示」入口（克隆按钮，样式与导航栏一致）
         if (ConfigManager.SoloMode) {
             AttachSoloTutorialButton(SoloTutorialController.OpenPicker);
+            AttachSoloDemoButton(SoloDemoController.OpenPicker);
         }
 
         ConfigManager.OnLanguageChanged += RefreshHeaderLabels;
@@ -118,25 +121,40 @@ public class HeaderPanel : MonoBehaviour {
     /// 运行时监听不会随 Instantiate 复制，但仍重置 onClick 以防战绩按钮带持久化调用。
     /// </summary>
     private void AttachSoloTutorialButton(UnityEngine.Events.UnityAction onClick) {
-        if (recordButton == null || soloTutorialButton != null) return;
-        var go = Instantiate(recordButton.gameObject, recordButton.transform.parent);
-        go.name = "SoloTutorial";
-        go.transform.SetSiblingIndex(recordButton.transform.GetSiblingIndex() + 1);
-        // 战绩按钮按 2 字（100px）定宽；「新手教程」4 字在 33 号字下约需 132px，加宽避免压到隔壁按钮
+        if (soloTutorialButton != null) return;
+        soloTutorialButton = AttachSoloHeaderButton(recordButton, "SoloTutorial", 150f, onClick);
+    }
+
+    private void AttachSoloDemoButton(UnityEngine.Events.UnityAction onClick) {
+        if (soloDemoButton != null) return;
+        soloDemoButton = AttachSoloHeaderButton(soloTutorialButton, "SoloDemo", 150f, onClick);
+    }
+
+    /// <summary>
+    /// 克隆一个现有导航按钮并插在其右侧：重命名、加宽、清掉被复制的 EventTrigger 条目与 onClick
+    /// （运行时监听不会随 Instantiate 复制，但仍重置 onClick 以防源按钮带持久化调用）。
+    /// EventTrigger.entries 会被序列化复制：若源按钮的悬停效果已注册，克隆体会双份，
+    /// 清空后由克隆体自己的 HeaderButton.Start 重新注册。
+    /// </summary>
+    private HeaderButton AttachSoloHeaderButton(HeaderButton source, string buttonName, float width,
+                                                UnityEngine.Events.UnityAction onClick) {
+        if (source == null) return null;
+        var go = Instantiate(source.gameObject, source.transform.parent);
+        go.name = buttonName;
+        go.transform.SetSiblingIndex(source.transform.GetSiblingIndex() + 1);
         var rect = go.GetComponent<RectTransform>();
-        rect.sizeDelta = new Vector2(150f, rect.sizeDelta.y);
-        soloTutorialButton = go.GetComponent<HeaderButton>();
-        if (soloTutorialButton == null) {
+        rect.sizeDelta = new Vector2(width, rect.sizeDelta.y);
+        var cloned = go.GetComponent<HeaderButton>();
+        if (cloned == null) {
             Destroy(go);
-            return;
+            return null;
         }
-        // EventTrigger.entries 会被序列化复制：若战绩按钮的悬停效果已注册，克隆体会双份，
-        // 清空后由克隆体自己的 HeaderButton.Start 重新注册。
         var trigger = go.GetComponent<EventTrigger>();
         if (trigger != null) trigger.triggers.Clear();
-        soloTutorialButton.Button.onClick = new Button.ButtonClickedEvent();
-        soloTutorialButton.Button.onClick.AddListener(onClick);
-        soloTutorialButton.SetState(false, false, default);
+        cloned.Button.onClick = new Button.ButtonClickedEvent();
+        cloned.Button.onClick.AddListener(onClick);
+        cloned.SetState(false, false, default);
+        return cloned;
     }
 
     /// <summary>
@@ -256,6 +274,7 @@ public class HeaderPanel : MonoBehaviour {
         logoutButton?.SetState(false, false, default);
         // 新手教程是弹层入口而非窗口页，永远保持常态外观
         soloTutorialButton?.SetState(false, false, default);
+        soloDemoButton?.SetState(false, false, default);
     }
 
     private static bool IsInRoom() {
@@ -270,6 +289,7 @@ public class HeaderPanel : MonoBehaviour {
         SetButtonLabel(playerDataButton, HeaderNavItem.PlayerData);
         SetButtonLabel(recordButton, ConfigManager.SoloMode ? HeaderNavItem.SoloRecord : HeaderNavItem.Record);
         SetButtonLabel(soloTutorialButton, HeaderNavItem.SoloTutorial);
+        SetButtonLabel(soloDemoButton, HeaderNavItem.SoloDemo);
         SetButtonLabel(matchButton, HeaderNavItem.Match);
         SetButtonLabel(eventButton, HeaderNavItem.Event);
         SetButtonLabel(sceneConfigButton, HeaderNavItem.SceneConfig);

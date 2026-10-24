@@ -320,7 +320,8 @@ class _GameStateManagerStub:
             return game
         return None
 
-    async def cleanup_game_state_complete(self, gamestate_id=None):  # 单机无全局注册表，收尾为空操作
+    async def cleanup_game_state_complete(self, gamestate_id=None, **_kwargs):
+        # 单机无全局注册表，收尾为空操作；**_kwargs 兼容 reason 等线上参数
         return None
 
 
@@ -891,20 +892,30 @@ def _tile_display_name(tile) -> str:
     return _TILE_NAMES.get(tile, str(tile))
 
 
-def _build_scenario_wall(h0, h1, h2, h3, draw_seq, fill_seed=1):
+def _build_scenario_wall(h0, h1, h2, h3, draw_seq, fill_seed=1, flip=None):
     """把 4 家 13 张手牌与摸牌序列装配成 136 张完整牌墙。
 
     发牌顺序由 initialize_round 固定：每轮庄家（0 号位）起每家拿 4 张，共 3 轮
     （占墙前 48 张）；随后 5 张依次是庄/闲1 的第 13 张、庄家第 14 张（首摸）、
     闲2/闲3 的第 13 张；此后 wall[53] 起为按座次的自然摸牌，杠补牌从墙尾取。
+
+    开局会 pop 出牌墙首张作翻财神指示牌的玩法（萧山/义乌 pop 一张、绍兴在
+    萧山之后再 pop 一张），消耗摸牌序列头部的牌。传 flip 指定牺牲牌（单张或
+    序列）顶到 wall[53] 起，既满足翻牌又保住后续摸牌剧本；序列最后一张即
+    指示牌，决定财神身份，须选对各家手牌无影响的牌。
     """
     import random as _random
     from server.game_calculation.hangzhou.rules import TILES as _HZ_TILES
+    flips = [flip] if isinstance(flip, int) else list(flip or ())
     for hand in (h0, h1, h2, h3):
         if len(hand) != 13:
             raise ValueError("教程手牌必须 13 张")
     used = collections.Counter(h0) + collections.Counter(h1) + collections.Counter(h2) \
         + collections.Counter(h3) + collections.Counter(draw_seq)
+    for tile in flips:
+        if tile not in _HZ_TILES:
+            raise ValueError("翻牌牺牲牌不在牌集内")
+        used[tile] += 1
     if any(n > 4 for n in used.values()):
         raise ValueError("教程场景用牌超出 4 张上限")
     wall = [None] * 136
@@ -919,10 +930,10 @@ def _build_scenario_wall(h0, h1, h2, h3, draw_seq, fill_seed=1):
         put(base + 8, h2[row * 4:row * 4 + 4])
         put(base + 12, h3[row * 4:row * 4 + 4])
     put(48, [h0[12], h1[12], draw_seq[0], h2[12], h3[12]])
-    planned = list(draw_seq[1:])  # 从 wall[53] 起按座次的摸牌
+    planned = list(draw_seq[1:])  # 从牺牲牌之后起按座次的摸牌
     filler = [t for t in _HZ_TILES for _ in range(4 - used.get(t, 0))]
     _random.Random(fill_seed).shuffle(filler)
-    wall[53:] = planned + filler
+    wall[53:] = flips + planned + filler
     return wall
 
 
@@ -959,44 +970,197 @@ TUTORIAL_SCENARIOS = {
                draws=[15, 46, 44, 21]),
 }
 
+# 各玩法一句话简介：客户端选择面板展示 + 教程开始消息附带
+TUTORIAL_RULE_BRIEFS = {
+    HANGZHOU_RULE: "经典杭州玩法：翻牌下一张是财神，可爆头财飘",
+    XIAOSHAN_RULE: "家庭房规：仅自摸，翻牌本身就是财神",
+    SHAOXING_RULE: "翻牌加一（翻五万六万财神），同种四张全财神，8 倍封顶",
+    TAIZHOU_RULE: "黄岩打法：白板是财神，MIL 4 番封顶，轮庄",
+    YIWU_RULE: "翻牌即财神，轮庄，牌墙剩 17 墩流局",
+    GUOBIAO_RULE: "国标 81 番，起和 8 番，吃碰杠齐全",
+}
 
-def _new_tutorial_state(server: SoloServer, room_data: dict):
-    """实例化教程引擎：真人固定坐庄、首局用教学牌墙、行动窗口顺带推送新手提示。"""
-    from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState
-    from server.gamestate.game_hangzhou.state_machine import Phase as P
+# 国标教程场景：走国标引擎 Debug 固定手牌机制。真人固定坐庄，手牌 14 张
+# （13 张 + 庄家首摸已含）；wall_top=(槽位, 牌) 把关键牌顶到牌山摸牌槽
+# （1=南家首摸，之后西、北、庄依次摸），配合机器人底牌实现剧本化教学。
+# 机器人底牌全部是条子/字牌散张，摸到万筒孤张必打，保证教学牌按剧本出现。
+_TUTORIAL_GB_BOTS = [_BOT_A, _BOT_B, _BOT_C]
+TUTORIAL_SCENARIOS_GUOBIAO = {
+    # 学出牌：杂牌起手，庄家随便打一张
+    "chu": dict(title="学会出牌",
+                hands=[[11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 43, 45, 46]] + _TUTORIAL_GB_BOTS),
+    # 学吃：手里 1筒/2筒 搭子，北家摸进孤张 3 筒后必打，庄家吃成 1-2-3 筒
+    "chi": dict(title="学会吃",
+                hands=[[21, 22, 11, 12, 13, 31, 32, 33, 41, 42, 43, 44, 45, 46]] + _TUTORIAL_GB_BOTS,
+                wall_top=(3, 23)),
+    # 学碰：手里 4筒 一对，南家摸进孤张 4 筒后必打，庄家碰成刻子
+    "peng": dict(title="学会碰",
+                 hands=[[24, 24, 11, 12, 13, 21, 22, 23, 31, 32, 33, 41, 42, 45]] + _TUTORIAL_GB_BOTS,
+                 wall_top=(1, 24)),
+    # 学杠：手里 1 万四张，直接暗杠
+    "angang": dict(title="学会杠",
+                   hands=[[11, 11, 11, 11, 21, 22, 23, 31, 32, 33, 41, 42, 43, 45]] + _TUTORIAL_GB_BOTS),
+    # 学胡牌：三刻（1/3/5 万）+ 对 7 筒，打出发财后对倒听 7/9 筒，
+    # 第二轮自摸 9 筒成碰碰和+门前清+自摸（9 番 ≥ 起和 8 番）。
+    # 机器人底牌是全孤张：不含 11/33/35/27/29/47（真人手牌），彼此间隔 ≥3
+    # （无吃）、无对子（无碰）、无四张（无杠）——任何机器人都不可能鸣牌，
+    # 保证南/西/北按槽位顺序摸牌、庄家第二轮稳摸到槽位 4 的 9 筒。
+    "hu": dict(title="学会胡牌",
+               hands=[[11, 11, 11, 33, 33, 33, 35, 35, 35, 27, 27, 29, 29, 47],
+                      [14, 17, 21, 24, 31, 34, 37, 41, 42, 43, 44, 45, 46],
+                      [14, 17, 21, 24, 31, 34, 37, 41, 42, 43, 44, 45, 46],
+                      [14, 17, 21, 24, 31, 34, 37, 41, 42, 43, 44, 45, 46]],
+               wall_top=(4, 29)),
+}
 
-    class TutorialHangzhouGameState(HangzhouGameState):
-        def _rotate_initial_dealer_randomly(self):
-            return  # 教程固定真人（0 号位）坐庄
 
-        def initialize_round(self, *, wall=None):
-            if wall is None:
-                walls = getattr(self, "tutorial_walls", None) or []
-                if walls:
-                    wall = walls.pop(0)  # 教学牌墙只用于第一小局，之后回退随机
-            super().initialize_round(wall=wall)
+# 杭州家族教程钩子：固定庄家、首局教学牌墙、一局即整场、行动窗口推送提示。
+# 做成 mixin，与所选大厅变体引擎（萧山/绍兴/台州/义乌/杭州）动态合成教程子类，
+# 变体引擎未覆写的钩子自然回落到杭州基类实现。
+class _TutorialHangzhouMixin:
+    def _rotate_initial_dealer_randomly(self):
+        return  # 教程固定真人（0 号位）坐庄
 
-        def _finish_round(self, reason):
-            # 教程只打一小局：无论胡牌还是流局，本局结束即整场结束。
-            self.match_finishing = True
-            self.ended_by = reason
-            self.machine.transition(P.END)
+    def initialize_round(self, *, wall=None):
+        if wall is None:
+            walls = getattr(self, "tutorial_walls", None) or []
+            if walls:
+                wall = walls.pop(0)  # 教学牌墙只用于第一小局，之后回退随机
+        super().initialize_round(wall=wall)
 
-        def open_action_window(self, window):
-            result = super().open_action_window(window)
-            self._publish_tutorial_hint(result)
-            return result
+    def _finish_round(self, reason):
+        # 教程只打一小局：无论胡牌还是流局，本局结束即整场结束。
+        from server.gamestate.game_hangzhou.state_machine import Phase as P
+        self.match_finishing = True
+        self.ended_by = reason
+        self.machine.transition(P.END)
 
-        def _publish_tutorial_hint(self, window):
-            """真人座位出现可操作窗口时，推一条 solo/tutorial_hint 指导语。"""
+    def open_action_window(self, window):
+        result = super().open_action_window(window)
+        self._publish_tutorial_hint(result)
+        return result
+
+    def _publish_tutorial_hint(self, window):
+        """真人座位出现可操作窗口时，推一条 solo/tutorial_hint 指导语。"""
+        try:
+            if self.game_server is None:
+                return
+            mine = (window.get("actions") or {}).get(0)
+            if not mine or 0 not in self.waiting_players_list:
+                return
+            message = self._tutorial_hint_text(window, mine)
+            if not message:
+                return
+            connection = (self.game_server.user_id_to_connection or {}).get(self.player_list[0].user_id)
+            if connection is None or connection.websocket is None:
+                return
+            asyncio.ensure_future(connection.websocket.send_json({
+                "type": "solo/tutorial_hint",
+                "message": message,
+                "actions": list(mine),
+                "action_tick": window.get("action_tick"),
+            }))
+        except Exception:
+            logger.warning("教程提示推送失败", exc_info=True)
+
+    @staticmethod
+    def _tutorial_hint_text(window, actions):
+        status = window.get("status")
+        if status in ("waiting_hand_action", "onlycut_after_action"):
+            if any(a in actions for a in ("hu_self", "hu_first", "hu_second", "hu_third", "hu")):
+                return "自摸胡牌！点击「胡」按钮赢得这一局"
+            if "angang" in actions or "jiagang" in actions:
+                return "凑齐了四张相同的牌可以「杠」！点击「杠」按钮（不想杠也可以点一张牌正常打出）"
+            return "轮到你出牌：点击手牌里要打出的那张牌"
+        if status == "waiting_action_after_cut":
+            tile = _tile_display_name(window.get("tile"))
+            if "gang" in actions:
+                return f"他家打出{tile}，你手里有三张，可以「杠」！点击「杠」按钮"
+            if "peng" in actions:
+                return f"他家打出{tile}，你手里有一对，可以「碰」成刻子！点击「碰」按钮"
+            if any(a in actions for a in ("chi_left", "chi_mid", "chi_right")):
+                return f"上家打出{tile}，可以「吃」成顺子！点击「吃」按钮（有多种吃法时会再让你选）"
+            return "他家出了牌，不需要操作时点「过」跳过"
+        return None
+
+
+_TUTORIAL_ENGINE_CACHE = {}
+
+
+def _tutorial_engine_class(rule: str):
+    """杭州家族大厅规则 → 教程引擎子类（mixin 钩子 + 变体引擎基类），结果缓存。"""
+    cls = _TUTORIAL_ENGINE_CACHE.get(rule)
+    if cls is not None:
+        return cls
+    if rule == XIAOSHAN_RULE:
+        from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState as base
+    elif rule == SHAOXING_RULE:
+        from server.gamestate.game_shaoxing.ShaoxingGameState import ShaoxingGameState as base
+    elif rule == TAIZHOU_RULE:
+        from server.gamestate.game_taizhou.TaizhouGameState import TaizhouGameState as base
+    elif rule == YIWU_RULE:
+        from server.gamestate.game_yiwu.YiwuGameState import YiwuGameState as base
+    else:
+        from server.gamestate.game_hangzhou.HangzhouGameState import HangzhouGameState as base
+    cls = type("TutorialGameState_" + rule, (_TutorialHangzhouMixin, base), {})
+    _TUTORIAL_ENGINE_CACHE[rule] = cls
+    return cls
+
+
+def _new_tutorial_state(server: SoloServer, room_data: dict, rule: str):
+    """实例化杭州家族教程引擎：真人固定坐庄、首局用教学牌墙、行动窗口顺带推送新手提示。"""
+    return _tutorial_engine_class(rule)(server, room_data, None, None,
+                                        "solo-tutorial-" + uuid.uuid4().hex[:8])
+
+
+def _new_guobiao_tutorial_state(server: SoloServer, room_data: dict):
+    """实例化国标教程引擎：复用国标 Debug 固定手牌机制 + 教程提示推送。
+
+    - Debug=True：开局不打乱座位（真人固定庄家）、tutorial_hands 注入四家手牌、
+      tutorial_wall_top 顶牌山；
+    - game_loop_chinese 前把 current_round 预设为本圈最后一小局：唯一一小局结束
+      推进后外层整场循环自然退出，实现「一局即整场」（零引擎侵入）；
+    - 覆写 wait_action 在等待窗口建立时推送 solo/tutorial_hint。
+    """
+    from server.gamestate.game_guobiao.GuobiaoGameState import GuobiaoGameState
+    from server.game_calculation.game_calculation_service import GameCalculationService
+
+    class TutorialGuobiaoGameState(GuobiaoGameState):
+        async def game_loop_chinese(self):
+            self.current_round = self.max_round * len(self.player_list)
+            await super().game_loop_chinese()
+
+        async def wait_action(self):
+            self._publish_tutorial_hint()
+            await super().wait_action()
+
+        def _publish_tutorial_hint(self):
             try:
                 if self.game_server is None:
                     return
-                mine = (window.get("actions") or {}).get(0)
-                if not mine or 0 not in self.waiting_players_list:
+                mine = [a for a in (self.action_dict or {}).get(0, []) if a != "pass"]
+                if not mine or 0 not in (self.waiting_players_list or []):
                     return
-                message = self._tutorial_hint_text(window, mine)
-                if not message:
+                status = self.game_status
+                if status in ("waiting_hand_action", "onlycut_after_action"):
+                    if any(a in mine for a in ("hu_self", "hu_first", "hu_second", "hu_third", "hu")):
+                        message = "自摸胡牌！点击「胡」按钮赢得这一局"
+                    elif "angang" in mine or "jiagang" in mine:
+                        message = "凑齐了四张相同的牌可以「杠」！点击「杠」按钮（不想杠也可以点一张牌正常打出）"
+                    else:
+                        message = "轮到你出牌：点击手牌里要打出的那张牌"
+                elif status == "waiting_action_after_cut":
+                    tile = _tile_display_name(self.player_list[self.current_player_index].discard_tiles[-1]) \
+                        if self.player_list[self.current_player_index].discard_tiles else "牌"
+                    if "gang" in mine:
+                        message = f"他家打出{tile}，你手里有三张，可以「杠」！点击「杠」按钮"
+                    elif "peng" in mine:
+                        message = f"他家打出{tile}，你手里有一对，可以「碰」成刻子！点击「碰」按钮"
+                    elif any(a in mine for a in ("chi_left", "chi_mid", "chi_right")):
+                        message = f"上家打出{tile}，可以「吃」成顺子！点击「吃」按钮（有多种吃法时会再让你选）"
+                    else:
+                        message = "他家出了牌，不需要操作时点「过」跳过"
+                else:
                     return
                 connection = (self.game_server.user_id_to_connection or {}).get(self.player_list[0].user_id)
                 if connection is None or connection.websocket is None:
@@ -1005,38 +1169,20 @@ def _new_tutorial_state(server: SoloServer, room_data: dict):
                     "type": "solo/tutorial_hint",
                     "message": message,
                     "actions": list(mine),
-                    "action_tick": window.get("action_tick"),
                 }))
             except Exception:
-                logger.warning("教程提示推送失败", exc_info=True)
+                logger.warning("国标教程提示推送失败", exc_info=True)
 
-        def _tutorial_hint_text(self, window, actions):
-            status = window.get("status")
-            if status in ("waiting_hand_action", "onlycut_after_action"):
-                if "hu_self" in actions:
-                    return "自摸胡牌！点击「胡」按钮赢得这一局"
-                if "angang" in actions or "jiagang" in actions:
-                    return "凑齐了四张相同的牌可以「杠」！点击「杠」按钮（不想杠也可以点一张牌正常打出）"
-                return "轮到你出牌：点击手牌里要打出的那张牌"
-            if status == "waiting_action_after_cut":
-                tile = _tile_display_name(window.get("tile"))
-                if "gang" in actions:
-                    return f"他家打出{tile}，你手里有三张，可以「杠」！点击「杠」按钮"
-                if "peng" in actions:
-                    return f"他家打出{tile}，你手里有一对，可以「碰」成刻子！点击「碰」按钮"
-                if any(a in actions for a in ("chi_left", "chi_mid", "chi_right")):
-                    return f"上家打出{tile}，可以「吃」成顺子！点击「吃」按钮（有多种吃法时会再让你选）"
-                return "他家出了牌，不需要操作时点「过」跳过"
-            if status == "waiting_hangzhou_ten_winds":
-                return "连续打出字牌会触发「十风连打」，可以点「胡」结束，或继续出牌"
-            return None
-
-    return TutorialHangzhouGameState(server, room_data, None, None,
-                                     "solo-tutorial-" + uuid.uuid4().hex[:8])
+    return TutorialGuobiaoGameState(server, room_data, GameCalculationService(), _DbStub(),
+                                    "solo-tutorial-" + uuid.uuid4().hex[:8])
 
 
 async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message: dict):
-    """solo/start_tutorial {scenario}：进入教学对局（真人坐庄、固定首局牌墙）。"""
+    """solo/start_tutorial {rule, scenario}：按玩法进入教学对局（真人坐庄、固定教学手牌）。
+
+    杭州家族（杭州/萧山/绍兴/台州/义乌）走杭州栈变体引擎 + 教学牌墙注入；
+    国标走独立引擎 Debug 固定手牌机制（关花牌、起和 8 番）。
+    """
     game = server._game
     if game is not None and getattr(game, "game_task", None) is not None and not game.game_task.done():
         # 上一个教学局还在跑：直接换场景重开；其它对局（房间局等）不抢。
@@ -1049,21 +1195,55 @@ async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message
     if uid is None or uid <= 10:
         await _send(conn, {"type": "solo/start_tutorial", "success": False, "message": "请先登录"})
         return
-    scenario = TUTORIAL_SCENARIOS.get(str(message.get("scenario") or "chu")) or TUTORIAL_SCENARIOS["chu"]
+    rule = message.get("rule")
+    if rule not in RULE_LABELS:  # 未指定或非法时按杭州教学
+        rule = HANGZHOU_RULE
+    scenario_key = str(message.get("scenario") or "chu")
     player_list = [uid] + TUTORIAL_BOTS
-    room_data = dict(
-        room_id="solo-tutorial",
-        room_rule=HANGZHOU_RULE, sub_rule=HANGZHOU_SUB_RULE,
-        player_list=player_list,
-        player_settings=_player_settings_for(server, player_list),
-        game_round=1, round_timer=600, step_timer=60,
-        room_type="custom", tips=True, random_seed=0,
-        bot_speed="slow", bot_level="medium",
-    )
-    state = _new_tutorial_state(server, room_data)
-    hands = scenario["hands"]
-    state.tutorial_walls = [_build_scenario_wall(hands[0], hands[1], hands[2], hands[3],
-                                                 scenario["draws"], fill_seed=1)]
+    if rule == GUOBIAO_RULE:
+        scenario = TUTORIAL_SCENARIOS_GUOBIAO.get(scenario_key) or TUTORIAL_SCENARIOS_GUOBIAO["chu"]
+        room_data = dict(
+            room_id=0,
+            room_rule=GUOBIAO_RULE, sub_rule=GUOBIAO_SUB_RULE,
+            player_list=player_list,
+            player_settings=_player_settings_for(server, player_list),
+            game_round=1, round_timer=600, step_timer=60,
+            room_type="custom", tips=True, random_seed=0,
+            bot_speed="slow", bot_level="medium",
+            use_flowers=False,  # 教学局不用花牌，与 136 张教学手牌体系一致
+            hepai_limit=8,
+        )
+        state = _new_guobiao_tutorial_state(server, room_data)
+        state.Debug = True
+        state.debug_scenario = "solo_tutorial"
+        state.tutorial_hands = scenario["hands"]
+        if scenario.get("wall_top"):
+            state.tutorial_wall_top = scenario["wall_top"]
+    else:
+        scenario = TUTORIAL_SCENARIOS.get(scenario_key) or TUTORIAL_SCENARIOS["chu"]
+        room_data = dict(
+            room_id="solo-tutorial",
+            room_rule=rule, sub_rule=VARIANT_SUB_RULES.get(rule, HANGZHOU_SUB_RULE),
+            player_list=player_list,
+            player_settings=_player_settings_for(server, player_list),
+            game_round=1, round_timer=600, step_timer=60,
+            room_type="custom", tips=True, random_seed=0,
+            bot_speed="slow", bot_level="medium",
+        )
+        state = _new_tutorial_state(server, room_data, rule)
+        hands = scenario["hands"]
+        # 萧山/义乌开局 pop 牌墙首张翻财神、绍兴在萧山之后再 pop 一张：
+        # 用牺牲牌顶到 wall[53] 起保住 draw_seq 摸牌剧本。选 42/15 因五套场景中
+        # 用量 ≤3/≤2 张（46 已满 4 张），且 42、15 及其衍生财神（43/16）都不是
+        # 教学关键牌，各家手牌也不含 16。
+        if rule == SHAOXING_RULE:
+            flip = (42, 15)
+        elif rule in (XIAOSHAN_RULE, YIWU_RULE):
+            flip = 42
+        else:
+            flip = None
+        state.tutorial_walls = [_build_scenario_wall(hands[0], hands[1], hands[2], hands[3],
+                                                     scenario["draws"], fill_seed=1, flip=flip)]
     try:
         from server.gamestate.public.ai.pacing import configure_bot_pacing
         configure_bot_pacing(state, room_data)
@@ -1072,9 +1252,11 @@ async def _handle_start_tutorial(server: SoloServer, conn: WsConnection, message
     server._game = state
     server.gamestate_manager._game = state
     state.game_task = asyncio.create_task(_run_game_loop(server, state))
-    _note("教程对局已启动 scenario=%s uid=%s" % (message.get("scenario"), uid))
+    brief = TUTORIAL_RULE_BRIEFS.get(rule, "")
+    _note("教程对局已启动 rule=%s scenario=%s uid=%s" % (rule, scenario_key, uid))
     await _send(conn, {"type": "solo/start_tutorial", "success": True,
-                       "message": "教程「%s」开始" % scenario["title"]})
+                       "message": "「%s」教程「%s」开始" % (RULE_LABELS[rule], scenario["title"]),
+                       "rule": rule, "brief": brief})
 
 
 async def _handle_stop_tutorial(server: SoloServer, conn: WsConnection, message: dict):

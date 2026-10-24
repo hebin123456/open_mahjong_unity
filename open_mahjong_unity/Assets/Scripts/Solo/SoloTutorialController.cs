@@ -6,8 +6,9 @@ using UnityEngine;
 ///
 /// 流程：
 /// 1. 点击顶栏「新手教程」按钮（HeaderPanel 在单机下克隆战绩按钮生成，插在战绩后面）；
-/// 2. 弹出场景选择（出牌/吃/碰/杠/胡，五选一），发送 solo/start_tutorial {scenario}
-///    → 服务端开一局教学对局（真人固定坐庄、座位 1-3 是机器人、首局发牌按脚本固定）；
+/// 2. 先选玩法（杭州/萧山/绍兴/台州/义乌/国标六选一，各玩法规则与牌型不同），
+///    再选场景（出牌/吃/碰/杠/胡五选一），发送 solo/start_tutorial {rule, scenario}
+///    → 服务端按所选玩法开一局教学对局（真人固定坐庄、座位 1-3 是机器人、首局发牌按脚本固定）；
 /// 3. 每当真人座位出现可操作窗口，服务端推 solo/tutorial_hint，这里显示成屏幕上方的指导气泡。
 ///
 /// 教程局一局（胡牌或流局）即整场结束；提示气泡在对局内持续显示，超时或被下一条提示替换。
@@ -20,6 +21,7 @@ public class SoloTutorialController : MonoBehaviour {
     private bool pickerOpen;
     private bool inTutorial;
     private bool tutorialGameEntered;
+    private string pickerRule;
     private string hint;
     private float hintExpiresAt;
     private GUIStyle body;
@@ -34,6 +36,16 @@ public class SoloTutorialController : MonoBehaviour {
         new[] { "hu", "学会胡牌" },
     };
 
+    // 与服务端 RULE_LABELS 一致的六种玩法，每种玩法各有独立的教学牌墙与规则
+    private static readonly string[][] Rules = {
+        new[] { "hangzhou", "杭州麻将" },
+        new[] { "xiaoshan", "萧山麻将" },
+        new[] { "shaoxing", "绍兴麻将" },
+        new[] { "taizhou", "台州麻将" },
+        new[] { "yiwu", "义乌麻将" },
+        new[] { "guobiao", "国标麻将" },
+    };
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Create() {
         if (!ConfigManager.SoloMode) return;
@@ -42,10 +54,11 @@ public class SoloTutorialController : MonoBehaviour {
         instance = go.AddComponent<SoloTutorialController>();
     }
 
-    /// <summary>顶栏「新手教程」按钮（HeaderPanel 克隆生成）点击时调用：打开场景选择面板。</summary>
+    /// <summary>顶栏「新手教程」按钮（HeaderPanel 克隆生成）点击时调用：打开玩法→场景选择面板。</summary>
     public static void OpenPicker() {
         if (instance == null) return;
         instance.pickerOpen = true;
+        instance.pickerRule = null;
     }
 
     /// <summary>NetworkManager 收到 solo/start_tutorial / solo/tutorial_hint 时转交这里。</summary>
@@ -60,6 +73,7 @@ public class SoloTutorialController : MonoBehaviour {
                 if (response.success) {
                     inTutorial = true;
                     pickerOpen = false;
+                    pickerRule = null;
                 } else {
                     NotificationManager.Instance?.ShowTip("新手教程", false,
                         string.IsNullOrEmpty(response.message) ? "教程启动失败" : response.message);
@@ -83,7 +97,7 @@ public class SoloTutorialController : MonoBehaviour {
         }
     }
 
-    private void StartScenario(string key) {
+    private void StartScenario(string rule, string key) {
         var nm = NetworkManager.Instance;
         if (nm == null || !nm.IsWebSocketOpen) {
             NotificationManager.Instance?.ShowTip("新手教程", false, "尚未连接本地服务，请稍后再试");
@@ -95,9 +109,9 @@ public class SoloTutorialController : MonoBehaviour {
             return;
         }
         try {
-            var request = new TutorialRequest { type = "solo/start_tutorial", scenario = key };
+            var request = new TutorialRequest { type = "solo/start_tutorial", rule = rule, scenario = key };
             _ = nm.GetWebSocket().SendText(Newtonsoft.Json.JsonConvert.SerializeObject(request));
-            Debug.Log("[SoloTutorial] 已请求教程场景: " + key);
+            Debug.Log("[SoloTutorial] 已请求教程场景: " + rule + "/" + key);
         } catch (Exception e) {
             Debug.LogError("[SoloTutorial] 发送教程请求失败: " + e.Message);
             NotificationManager.Instance?.ShowTip("新手教程", false, "发送教程请求失败");
@@ -106,6 +120,7 @@ public class SoloTutorialController : MonoBehaviour {
 
     private sealed class TutorialRequest {
         public string type;
+        public string rule;
         public string scenario;
     }
 
@@ -144,30 +159,36 @@ public class SoloTutorialController : MonoBehaviour {
             float h = hintStyle.CalcHeight(new GUIContent(hint), w) + body.fontSize * 0.9f;
             GUI.Box(new Rect((Screen.width - w) / 2f, 12f, w, h), hint, hintStyle);
         }
-        // 场景选择面板：由顶栏「新手教程」按钮打开；进入对局/观战时自动收起
+        // 玩法→场景选择面板：由顶栏「新手教程」按钮打开；进入对局/观战时自动收起
         if (GameSessionGuard.HasExclusiveSession) {
             pickerOpen = false;
+            pickerRule = null;
             // 教学局没有现成的退出入口，对局内常驻「结束教程」按钮（提示气泡正下方）
             if (inTutorial) DrawStopButton();
             return;
         }
         if (!pickerOpen) return;
-        float h2 = body.fontSize * 2.6f;
+        if (pickerRule == null) DrawRulePicker();
+        else DrawScenarioPicker();
+    }
+
+    private void DrawRulePicker() {
+        float h = body.fontSize * 2.6f;
         float pw = Mathf.Max(320, body.fontSize * 16);
-        // 标题一行 + 场景按钮 + 关闭，之前漏算了标题占的高度，关闭按钮被挤出面板外
-        float ph = (h2 + 8f) * (Scenarios.Length + 1) + h2 + 20f;
+        // 标题一行 + 玩法按钮 + 关闭，标题高度也要计入，否则关闭按钮被挤出面板外
+        float ph = (h + 8f) * (Rules.Length + 1) + h + 20f;
         float px = (Screen.width - pw) / 2f;
         float py = (Screen.height - ph) / 2f;
         GUI.Box(new Rect(px, py, pw, ph), GUIContent.none);
-        GUI.Label(new Rect(px + 16, py + 10, pw - 32, h2), "选择要学习的操作", body);
-        float by = py + 10f + h2 + 8f;
-        foreach (var scenario in Scenarios) {
-            if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), scenario[1], buttonStyle)) {
-                StartScenario(scenario[0]);
+        GUI.Label(new Rect(px + 16, py + 10, pw - 32, h), "选择要学习的玩法（各玩法规则与牌型不同）", body);
+        float by = py + 10f + h + 8f;
+        foreach (var rule in Rules) {
+            if (GUI.Button(new Rect(px + 16, by, pw - 32, h), rule[1], buttonStyle)) {
+                pickerRule = rule[0];
             }
-            by += h2 + 8f;
+            by += h + 8f;
         }
-        if (GUI.Button(new Rect(px + 16, by, pw - 32, h2), "关闭", buttonStyle)) {
+        if (GUI.Button(new Rect(px + 16, by, pw - 32, h), "关闭", buttonStyle)) {
             pickerOpen = false;
         }
     }
@@ -188,5 +209,42 @@ public class SoloTutorialController : MonoBehaviour {
                     new TutorialRequest { type = "solo/stop_tutorial" }));
             }
         }
+    }
+
+    private void DrawScenarioPicker() {
+        string label = RuleLabel(pickerRule);
+        float h = body.fontSize * 2.6f;
+        float pw = Mathf.Max(320, body.fontSize * 16);
+        float ph = (h + 8f) * (Scenarios.Length + 1) + h + 20f;
+        float px = (Screen.width - pw) / 2f;
+        float py = (Screen.height - ph) / 2f;
+        GUI.Box(new Rect(px, py, pw, ph), GUIContent.none);
+        GUI.Label(new Rect(px + 16, py + 10, pw - 32, h), "选择要学习的操作（" + label + "）", body);
+        float by = py + 10f + h + 8f;
+        foreach (var scenario in Scenarios) {
+            if (GUI.Button(new Rect(px + 16, by, pw - 32, h), scenario[1], buttonStyle)) {
+                string rule = pickerRule;
+                pickerOpen = false;
+                pickerRule = null;
+                StartScenario(rule, scenario[0]);
+            }
+            by += h + 8f;
+        }
+        // 底部一行：左「返回」回玩法选择，右「关闭」
+        float bw = (pw - 32f - 8f) / 2f;
+        if (GUI.Button(new Rect(px + 16, by, bw, h), "返回", buttonStyle)) {
+            pickerRule = null;
+        }
+        if (GUI.Button(new Rect(px + 16 + bw + 8f, by, bw, h), "关闭", buttonStyle)) {
+            pickerOpen = false;
+            pickerRule = null;
+        }
+    }
+
+    private static string RuleLabel(string rule) {
+        foreach (var r in Rules) {
+            if (r[0] == rule) return r[1];
+        }
+        return rule;
     }
 }
