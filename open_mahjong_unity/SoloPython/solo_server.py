@@ -93,8 +93,8 @@ RULE_LABELS = {HANGZHOU_RULE: "杭州麻将", XIAOSHAN_RULE: "萧山麻将",
 VARIANT_SUB_RULES = {XIAOSHAN_RULE: XIAOSHAN_SUB_RULE, SHAOXING_RULE: SHAOXING_SUB_RULE,
                      TAIZHOU_RULE: TAIZHOU_SUB_RULE, YIWU_RULE: YIWU_SUB_RULE}
 
-# 四种加机器人入口对应的机器人 id（1=摸切、5=低级、2=中级、3=高级），
-# 用于房主按入口偏好选人；同一水平的机器人已在房间时拒绝重复添加。
+# 四种加机器人入口对应的机器人 id（1=摸切、5=低级、2=中级、3=高级）。
+# 同一水平的机器人可以重复添加（如三个摸切），座位里会出现重复 user_id。
 BOT_PREFERRED_IDS = {"room/add_easy_bot": 5, "room/add_guobiao_heuristic_bot": 3,
                      "room/add_smart_bot": 2, "room/add_bot": 1}
 
@@ -1412,7 +1412,7 @@ async def _handle_create_room(server: SoloServer, conn: WsConnection, message: d
 
 
 async def _handle_add_bot(server: SoloServer, conn: WsConnection, message: dict, mtype: str):
-    """房主给空座补机器人；四种入口各对应一个水平，已在房间时拒绝重复添加。"""
+    """房主给空座补机器人；四种入口各对应一个水平，同水平可重复添加。"""
     room = server._room
     if room is None:
         await _send(conn, {"type": "error_message", "success": False, "message": "尚未创建房间"})
@@ -1428,15 +1428,8 @@ async def _handle_add_bot(server: SoloServer, conn: WsConnection, message: dict,
     if len(players) >= max_player:
         await _send(conn, {"type": "error_message", "success": False, "message": "房间已满座"})
         return
-    free = [uid for uid in BOT_USER_IDS if uid not in players]
-    if not free:
-        await _send(conn, {"type": "error_message", "success": False, "message": "机器人已用完"})
-        return
+    # 同一水平可重复添加，直接用该水平对应的机器人 id 追加一个座位。
     preferred = BOT_PREFERRED_IDS.get(mtype, 1)
-    if preferred not in free:
-        await _send(conn, {"type": "error_message", "success": False,
-                           "message": "该水平的机器人已在房间中"})
-        return
     players.append(preferred)
     _sync_room_view(server)
     _note("房主加机器人 uid=" + str(preferred) + " 座位=" + str(players))
@@ -1463,7 +1456,11 @@ async def _handle_kick_player(server: SoloServer, conn: WsConnection, message: d
     if target == room.get("host_user_id"):
         await _send(conn, {"type": "error_message", "success": False, "message": "不能移出房主"})
         return
-    players.remove(target)
+    # 同水平机器人会有重复 user_id：按座位索引移除，避免踢错座位。
+    if target <= 10 and isinstance(seat, int) and 0 <= seat < len(players) and players[seat] == target:
+        players.pop(seat)
+    else:
+        players.remove(target)
     _sync_room_view(server)
     _note("房主移出 uid=" + str(target) + " 座位=" + str(players))
     if target > 10:
