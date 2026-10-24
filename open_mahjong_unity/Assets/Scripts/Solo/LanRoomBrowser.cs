@@ -6,8 +6,10 @@ using System.Text;
 using UnityEngine;
 
 /// <summary>
-/// 局域网房间浏览器：在单机模式下广播探测同一局域网内开放的主机房间（UDP 18764），
-/// 列出可加入的房间并一键加入；也支持直连 IP（广播被路由器/隔离网段拦掉时的兜底）。
+/// 局域网房间直连器：只做局域网对战，不再有局域网房间列表浮层。
+/// 单机模式下输入房间号加入（RoomListPanel 调用 <see cref="JoinRoomById"/>）：
+/// 后台通过 UDP 18764 广播探测（OMU_DISCOVER），发现房号匹配的主机后直连其
+/// ws://{ip}:{port}/game 并自动加入房间；搜索超时或连接失败时提示并切回本机。
 ///
 /// 加入流程：
 /// 1. 把 ConfigManager.gameUrl/chatUrl 指向房间主机的 ws://{ip}:{port}/game；
@@ -15,8 +17,8 @@ using UnityEngine;
 /// 3. NetworkManager.BeginNewConnection() 连接远端；
 /// 4. 登录成功（UserId != 0）后自动发送 room/join_room，进入房间的 RoomPanel。
 ///
-/// 房主机无需任何额外操作：正常创建房间即可，内嵌服务端（SOLO_LAN=1）会监听 0.0.0.0
-/// 并应答 UDP 发现广播；加入方按房间列表或直连 IP 接入。
+/// 房主机无需任何额外操作：正常创建房间即可，内嵌服务端（SOLO_LAN=1）会监听
+/// 0.0.0.0 并应答 UDP 发现广播。
 /// </summary>
 public class LanRoomBrowser : MonoBehaviour {
     /// <summary>与服务端 SoloPython/solo_server.py 的 LAN_DISCOVERY_PORT 保持一致。</summary>
@@ -27,7 +29,9 @@ public class LanRoomBrowser : MonoBehaviour {
     private const float PendingJoinTimeoutSeconds = 20f;
     /// <summary>房间条目超过该秒数未再应答即从列表移除。</summary>
     private const float RoomStaleSeconds = 5f;
-    private const float ScanIntervalSeconds = 1f;
+    /// <summary>按房号搜索期间重发广播的间隔与总超时。</summary>
+    private const float SearchBroadcastIntervalSeconds = 0.5f;
+    private const float SearchTimeoutSeconds = 4f;
 
     /// <summary>一条发现应答解析出的房间条目。</summary>
     private class LanRoom {
@@ -43,15 +47,6 @@ public class LanRoomBrowser : MonoBehaviour {
         public bool HasPassword;
         public bool IsGameRunning;
         public float LastSeen;
-
-        public string Label {
-            get {
-                string name = string.IsNullOrEmpty(RoomName) ? (RuleLabel ?? "麻将房间") : RoomName;
-                string state = IsGameRunning ? " · 对局中" : "";
-                string pwd = HasPassword ? " · 需密码" : "";
-                return $"{name} · {HostName} · {HumanCount}/{MaxPlayer}人{pwd}{state}";
-            }
-        }
     }
 
     private class DiscoveryReply {
@@ -73,20 +68,17 @@ public class LanRoomBrowser : MonoBehaviour {
         public bool is_game_running;
     }
 
-    private bool visible;
-    /// <summary>浏览器窗口是否展开（教学演示按钮借此避让，避免 IMGUI 重叠）。</summary>
-    public static bool BrowserWindowVisible => instance != null && instance.visible;
     private static LanRoomBrowser instance;
     private UdpClient udp;
-    private float scanTimer;
     private readonly Dictionary<string, LanRoom> rooms = new Dictionary<string, LanRoom>();
-    private Vector2 scroll;
-    private string joinPassword = "";
-    private string manualAddress = "";
+    /// <summary>连接建立后待自动加入的房间号（SwitchToRemote 设置，TickPendingJoin 消费）。</summary>
     private string pendingRoomId;
     private string pendingPassword;
     private float pendingSince;
-    private GUIStyle body;
+    /// <summary>按房号后台搜索的目标房号（TickRoomSearch 消费；空表示未在搜索）。</summary>
+    private string searchingRoomId;
+    private float searchDeadline;
+    private float searchSendTimer;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Create() {
@@ -98,13 +90,68 @@ public class LanRoomBrowser : MonoBehaviour {
 
     private void Update() {
         TickPendingJoin();
-        if (!visible) return;
-        scanTimer -= Time.unscaledDeltaTime;
-        if (scanTimer <= 0f) {
-            scanTimer = ScanIntervalSeconds;
+        TickRoomSearch();
+    }
+
+    // ========== 按房号加入（静态入口） ==========
+
+    /// <summary>
+    /// 单机模式下按房间号加入局域网房间：后台广播搜索房号匹配的主机并直连，
+    /// 超时未搜到则提示失败。由 RoomListPanel 在单机模式"加入房间"时调用。
+    /// </summary>
+    public static void JoinRoomById(string roomId) {
+        roomId = (roomId ?? "").Trim();
+        if (string.IsNullOrEmpty(roomId)) {
+            NotificationManager.Instance?.ShowTip("join_room", false, "请输入房间号");
+            return;
+        }
+        if (!ConfigManager.SoloMode) return;
+        if (instance == null) {
+            var go = new GameObject("LanRoomBrowser");
+            DontDestroyOnLoad(go);
+            instance = go.AddComponent<LanRoomBrowser>();
+        }
+        instance.BeginRoomSearch(roomId);
+    }
+
+    private void BeginRoomSearch(string roomId) {
+        EnsureUdp();
+        searchingRoomId = roomId;
+        searchDeadline = Time.unscaledTime + SearchTimeoutSeconds;
+        searchSendTimer = 0f;
+        rooms.Clear();
+        Debug.Log($"[LanRoomBrowser] 开始搜索房间 {roomId}");
+    }
+
+    /// <summary>后台搜索循环：重发广播、匹配房号、超时提示失败。</summary>
+    private void TickRoomSearch() {
+        if (string.IsNullOrEmpty(searchingRoomId)) return;
+        PollDiscoveryReplies();
+        searchSendTimer -= Time.unscaledDeltaTime;
+        if (searchSendTimer <= 0f) {
+            searchSendTimer = SearchBroadcastIntervalSeconds;
             SendDiscovery();
         }
-        PollDiscoveryReplies();
+        LanRoom match = FindRoom(searchingRoomId);
+        if (match != null) {
+            string roomId = searchingRoomId;
+            searchingRoomId = null;
+            SwitchToRemote(match.Ip, match.Port, roomId, "");
+            return;
+        }
+        if (Time.unscaledTime >= searchDeadline) {
+            Debug.LogWarning($"[LanRoomBrowser] 搜索房间超时: {searchingRoomId}");
+            searchingRoomId = null;
+            NotificationManager.Instance?.ShowTip(
+                "join_room", false, "加入失败：未找到该房间号，请确认房主已创建房间且设备在同一局域网内");
+        }
+    }
+
+    private LanRoom FindRoom(string roomId) {
+        foreach (var room in rooms.Values) {
+            if (string.Equals(room.RoomId, roomId, StringComparison.Ordinal)) return room;
+        }
+        return null;
     }
 
     // ========== UDP 发现 ==========
@@ -205,7 +252,7 @@ public class LanRoomBrowser : MonoBehaviour {
         Debug.Log($"[LanRoomBrowser] 切换到远端 {ip}:{port}，待加入房间 {roomId}");
     }
 
-    /// <summary>切回本机内嵌服务（离开他人房间 / 加入失败后想自己开房时用）。</summary>
+    /// <summary>切回本机内嵌服务（加入失败后恢复本地单机可用）。</summary>
     private void BackToLocal() {
         pendingRoomId = null;
         ConfigManager.gameUrl = $"ws://127.0.0.1:{ConfigManager.SoloPort}/game";
@@ -217,7 +264,7 @@ public class LanRoomBrowser : MonoBehaviour {
         Debug.Log("[LanRoomBrowser] 已切回本机单机服务");
     }
 
-    /// <summary>新连接登录成功后自动发送加入房间请求；超时则提示并放弃。</summary>
+    /// <summary>新连接登录成功后自动发送加入房间请求；超时则提示、切回本机并放弃。</summary>
     private void TickPendingJoin() {
         if (string.IsNullOrEmpty(pendingRoomId)) return;
         var nm = NetworkManager.Instance;
@@ -233,104 +280,7 @@ public class LanRoomBrowser : MonoBehaviour {
             pendingRoomId = null;
             NotificationManager.Instance?.ShowTip(
                 "join_room", false, "加入失败：无法连接到房间主机，请确认在同一局域网内");
-        }
-    }
-
-    // ========== UI ==========
-
-    private void OnGUI() {
-        try {
-            DrawOverlay();
-        } catch (Exception e) {
-            Debug.LogError("[LanRoomBrowser] OnGUI 异常: " + e);
-        }
-    }
-
-    private void DrawOverlay() {
-        if (body == null) {
-            int size = Mathf.Max(20, Screen.height / 52);
-            body = new GUIStyle(GUI.skin.label) { fontSize = size, wordWrap = false };
-        }
-        if (!visible) {
-            // 与诊断面板按钮错开一档，避免重叠
-            float y = 8f + body.fontSize * 2.6f + 6f;
-            if (GUI.Button(new Rect(8, y, Mathf.Max(200, body.fontSize * 9), body.fontSize * 2.6f),
-                           "局域网房间")) {
-                visible = true;
-                SendDiscovery();
-            }
-            return;
-        }
-
-        float width = Mathf.Min(760f, Screen.width * 0.8f);
-        float height = Screen.height * 0.56f;
-        var area = new Rect(8, 8, width, height);
-        GUI.Box(area, GUIContent.none);
-        GUILayout.BeginArea(area);
-
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("局域网房间（自动搜索中）", body);
-        if (GUILayout.Button("关闭", GUILayout.Width(90))) {
-            visible = false;
-        }
-        GUILayout.EndHorizontal();
-
-        scroll = GUILayout.BeginScrollView(scroll);
-        if (rooms.Count == 0) {
-            GUILayout.Label("未发现房间。请让房主先创建房间，并确认设备在同一局域网内。", body);
-        }
-        foreach (var room in rooms.Values) {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label(room.Label + "  [" + room.Ip + "]", body);
-            if (room.IsGameRunning) {
-                GUILayout.Label("对局中", body, GUILayout.Width(body.fontSize * 4));
-            } else if (GUILayout.Button("加入", GUILayout.Width(90))) {
-                JoinRoom(room);
-            }
-            GUILayout.EndHorizontal();
-        }
-        GUILayout.EndScrollView();
-
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("密码", body, GUILayout.Width(body.fontSize * 3));
-        joinPassword = GUILayout.TextField(joinPassword, GUILayout.Width(width * 0.32f));
-        GUILayout.Space(10);
-        GUILayout.Label("直连", body, GUILayout.Width(body.fontSize * 3));
-        manualAddress = GUILayout.TextField(manualAddress, GUILayout.Width(width * 0.3f));
-        if (GUILayout.Button("连接", GUILayout.Width(90))) {
-            JoinManual(manualAddress);
-        }
-        GUILayout.EndHorizontal();
-
-        GUILayout.BeginHorizontal();
-        GUILayout.Label("当前: " + ConfigManager.gameUrl, body);
-        GUILayout.FlexibleSpace();
-        if (GUILayout.Button("回到本机", GUILayout.Width(120))) {
             BackToLocal();
-            visible = false;
         }
-        GUILayout.EndHorizontal();
-
-        GUILayout.EndArea();
-    }
-
-    private void JoinRoom(LanRoom room) {
-        SwitchToRemote(room.Ip, room.Port, room.RoomId, joinPassword);
-        visible = false;
-    }
-
-    /// <summary>直连 "IP[:端口]"（默认端口 18763），进入该主机当前开放的单机房间。</summary>
-    private void JoinManual(string address) {
-        address = (address ?? "").Trim();
-        if (string.IsNullOrEmpty(address)) return;
-        string ip = address;
-        int port = ConfigManager.SoloPort;
-        int idx = address.LastIndexOf(':');
-        if (idx > 0 && int.TryParse(address.Substring(idx + 1), out int parsed)) {
-            ip = address.Substring(0, idx);
-            port = parsed;
-        }
-        SwitchToRemote(ip, port, "solo-hangzhou", joinPassword);
-        visible = false;
     }
 }
