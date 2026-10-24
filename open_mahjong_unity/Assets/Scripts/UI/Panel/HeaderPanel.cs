@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 
 public class HeaderPanel : MonoBehaviour {
     public static HeaderPanel Instance { get; private set; }
@@ -18,6 +19,9 @@ public class HeaderPanel : MonoBehaviour {
     [SerializeField] private HeaderButton friendButton;
     [SerializeField] private HeaderButton backToGameButton;
     [SerializeField] private HeaderButton logoutButton;
+
+    // 单机「新手教程」入口：场景里没有现成按钮，运行时克隆战绩按钮生成（见 AttachSoloTutorialButton）
+    private HeaderButton soloTutorialButton;
     [Tooltip("「正在对局中」的红色提醒按钮所使用的底色")]
     [SerializeField] private Color backToGameTintColor = new Color(0.92f, 0.34f, 0.34f);
     [Header("轮到自己操作时的提醒闪烁")]
@@ -69,6 +73,11 @@ public class HeaderPanel : MonoBehaviour {
 
         ApplySoloModeVisibility();
 
+        // 单机：在「战绩」后面插入「新手教程」入口（克隆战绩按钮，样式与导航栏一致）
+        if (ConfigManager.SoloMode) {
+            AttachSoloTutorialButton(SoloTutorialController.OpenPicker);
+        }
+
         ConfigManager.OnLanguageChanged += RefreshHeaderLabels;
         UnreadBadgeStore.OnChanged += RefreshUnreadBadges;
         RefreshHeaderLabels();
@@ -101,6 +110,33 @@ public class HeaderPanel : MonoBehaviour {
     private static void SetNavActive(HeaderButton button, bool active) {
         if (button == null) return;
         button.gameObject.SetActive(active);
+    }
+
+    /// <summary>
+    /// 单机版：克隆「战绩」按钮生成「新手教程」入口并插在其后（LeftHorizontalLayoutGroup 自动排列）。
+    /// 教程入口没有场景资源，克隆现成按钮以保证图标/字号/间距与导航栏一致；
+    /// 运行时监听不会随 Instantiate 复制，但仍重置 onClick 以防战绩按钮带持久化调用。
+    /// </summary>
+    private void AttachSoloTutorialButton(UnityEngine.Events.UnityAction onClick) {
+        if (recordButton == null || soloTutorialButton != null) return;
+        var go = Instantiate(recordButton.gameObject, recordButton.transform.parent);
+        go.name = "SoloTutorial";
+        go.transform.SetSiblingIndex(recordButton.transform.GetSiblingIndex() + 1);
+        // 战绩按钮按 2 字（100px）定宽；「新手教程」4 字在 33 号字下约需 132px，加宽避免压到隔壁按钮
+        var rect = go.GetComponent<RectTransform>();
+        rect.sizeDelta = new Vector2(150f, rect.sizeDelta.y);
+        soloTutorialButton = go.GetComponent<HeaderButton>();
+        if (soloTutorialButton == null) {
+            Destroy(go);
+            return;
+        }
+        // EventTrigger.entries 会被序列化复制：若战绩按钮的悬停效果已注册，克隆体会双份，
+        // 清空后由克隆体自己的 HeaderButton.Start 重新注册。
+        var trigger = go.GetComponent<EventTrigger>();
+        if (trigger != null) trigger.triggers.Clear();
+        soloTutorialButton.Button.onClick = new Button.ButtonClickedEvent();
+        soloTutorialButton.Button.onClick.AddListener(onClick);
+        soloTutorialButton.SetState(false, false, default);
     }
 
     /// <summary>
@@ -218,6 +254,8 @@ public class HeaderPanel : MonoBehaviour {
         eventButton?.SetState(_currentWindowName == "event", false, default);
         friendButton?.SetState(_currentWindowName == "friend", false, default);
         logoutButton?.SetState(false, false, default);
+        // 新手教程是弹层入口而非窗口页，永远保持常态外观
+        soloTutorialButton?.SetState(false, false, default);
     }
 
     private static bool IsInRoom() {
@@ -231,6 +269,7 @@ public class HeaderPanel : MonoBehaviour {
         SetButtonLabel(spectatorButton, HeaderNavItem.Spectator);
         SetButtonLabel(playerDataButton, HeaderNavItem.PlayerData);
         SetButtonLabel(recordButton, ConfigManager.SoloMode ? HeaderNavItem.SoloRecord : HeaderNavItem.Record);
+        SetButtonLabel(soloTutorialButton, HeaderNavItem.SoloTutorial);
         SetButtonLabel(matchButton, HeaderNavItem.Match);
         SetButtonLabel(eventButton, HeaderNavItem.Event);
         SetButtonLabel(sceneConfigButton, HeaderNavItem.SceneConfig);

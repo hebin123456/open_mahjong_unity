@@ -5,9 +5,9 @@ using UnityEngine;
 /// 交互式新手教程控制器：固定牌墙的教学局里，跟着屏幕提示一步步学出牌/吃/碰/杠/胡。
 ///
 /// 流程：
-/// 1. 点击「新手教程」→ 弹出场景选择（出牌/吃/碰/杠/胡，五选一）；
-/// 2. 发送 solo/start_tutorial {scenario} → 服务端开一局教学对局
-///    （真人固定坐庄、座位 1-3 是机器人、首局发牌按脚本固定）；
+/// 1. 点击顶栏「新手教程」按钮（HeaderPanel 在单机下克隆战绩按钮生成，插在战绩后面）；
+/// 2. 弹出场景选择（出牌/吃/碰/杠/胡，五选一），发送 solo/start_tutorial {scenario}
+///    → 服务端开一局教学对局（真人固定坐庄、座位 1-3 是机器人、首局发牌按脚本固定）；
 /// 3. 每当真人座位出现可操作窗口，服务端推 solo/tutorial_hint，这里显示成屏幕上方的指导气泡。
 ///
 /// 教程局一局（胡牌或流局）即整场结束；提示气泡在对局内持续显示，超时或被下一条提示替换。
@@ -37,6 +37,12 @@ public class SoloTutorialController : MonoBehaviour {
         var go = new GameObject("SoloTutorialController");
         DontDestroyOnLoad(go);
         instance = go.AddComponent<SoloTutorialController>();
+    }
+
+    /// <summary>顶栏「新手教程」按钮（HeaderPanel 克隆生成）点击时调用：打开场景选择面板。</summary>
+    public static void OpenPicker() {
+        if (instance == null) return;
+        instance.pickerOpen = true;
     }
 
     /// <summary>NetworkManager 收到 solo/start_tutorial / solo/tutorial_hint 时转交这里。</summary>
@@ -114,16 +120,13 @@ public class SoloTutorialController : MonoBehaviour {
             float h = hintStyle.CalcHeight(new GUIContent(hint), w) + body.fontSize * 0.9f;
             GUI.Box(new Rect((Screen.width - w) / 2f, 12f, w, h), hint, hintStyle);
         }
-        // 入口按钮：对局/观战中不显示；局域网浏览器窗口展开时避让（它铺满左上区域）
-        if (GameSessionGuard.HasExclusiveSession || LanRoomBrowser.BrowserWindowVisible) return;
-        float h2 = body.fontSize * 2.6f;
-        // 第一行诊断面板、第二行局域网房间、第三行教学演示，这里排第四行
-        float y = 8f + (h2 + 6f) * 3f;
-        if (GUI.Button(new Rect(8, y, Mathf.Max(200, body.fontSize * 9), h2), "新手教程")) {
-            pickerOpen = !pickerOpen;
+        // 场景选择面板：由顶栏「新手教程」按钮打开；进入对局/观战时自动收起
+        if (GameSessionGuard.HasExclusiveSession) {
+            pickerOpen = false;
+            return;
         }
         if (!pickerOpen) return;
-        // 场景选择：屏幕居中小面板
+        float h2 = body.fontSize * 2.6f;
         float pw = Mathf.Max(320, body.fontSize * 16);
         float ph = (h2 + 8f) * Scenarios.Length + h2 + 20f;
         float px = (Screen.width - pw) / 2f;
