@@ -536,6 +536,8 @@ public partial class GameCanvas : MonoBehaviour {
         SetPersistentActionButton(null);
         // 吃碰杠询问结束（执行/跳过/超时/轮到下家）：隐藏可操作牌底部的光圈。
         Game3DManager.Instance?.HideClaimGlow();
+        // 决策按钮消失后，若听牌提示面板仍显示，恢复其默认位置。
+        TipsContainer.Instance?.ReapplyPlacement();
     }
 
     /// <summary>
@@ -561,6 +563,24 @@ public partial class GameCanvas : MonoBehaviour {
                 return DedicatedActionButtonContainer;
             }
             return ActionButtonContainer;
+        }
+    }
+
+    /// <summary>
+    /// 操作按钮或候选块是否可见：玩家有待决策动作（如摸牌后可胡、可碰杠）。
+    /// 听牌提示面板据此避让，避免盖住按钮。自由模式按钮栏在右下角，不参与避让。
+    /// </summary>
+    public bool HasVisibleActionDecision {
+        get {
+            if (FreeGameState.Active != null) return false;
+            if (ActionBlockContainerState != "None") return true;
+            Transform host = ActionButtonHost;
+            if (host == null || !host.gameObject.activeInHierarchy) return false;
+            foreach (Transform child in host) {
+                if (child == ExtraActionButton) continue;
+                if (child.gameObject.activeSelf) return true;
+            }
+            return false;
         }
     }
 

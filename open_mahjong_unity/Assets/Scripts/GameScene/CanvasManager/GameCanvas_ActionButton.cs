@@ -432,6 +432,8 @@ public partial class GameCanvas : MonoBehaviour {
 
         // 食替禁切等场景需要按当前状态变暗手牌
         GameCanvas.Instance.RefreshHandTileSelectability();
+        // 决策按钮出现后，若听牌提示面板正显示，抬到按钮区上方避免遮挡。
+        TipsContainer.Instance?.ReapplyPlacement();
     }
 
     // 选择行动

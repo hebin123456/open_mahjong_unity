@@ -180,6 +180,7 @@ public partial class TipsContainer : MonoBehaviour
         _pendingCutTileId = null;
         hasTips = false;
         gameObject.SetActive(false);
+        RestoreBasePlacement();
         if (HasCachedTenpaiTips && TipsBlock.Instance.IsBlockActive) {
             RefreshTenpaiTipsIfCached();
         }
@@ -609,11 +610,47 @@ public partial class TipsContainer : MonoBehaviour
         CancelPendingFanHints();
         _pendingCutTileId = null;
         gameObject.SetActive(false);
+        RestoreBasePlacement();
     }
+
+    /// <summary>场景默认锚点：画布中心下方 180px。</summary>
+    private const float BaseHintY = -180f;
+    /// <summary>操作按钮区（胡/碰/杠按钮）在画布坐标的上沿约 -184，避让时面板底沿抬到其上并留边距。</summary>
+    private const float ActionAreaTopY = -172f;
 
     public void ShowTips(){
         gameObject.SetActive(true);
         UpdateContainerSize();
+        ApplyActionAwarePlacement();
+    }
+
+    /// <summary>操作按钮可见时把提示面板抬到按钮区上方，避免盖住胡/碰/杠按钮；否则恢复默认位置。</summary>
+    private void ApplyActionAwarePlacement() {
+        RectTransform rect = transform as RectTransform;
+        if (rect == null) return;
+        float targetY = BaseHintY;
+        if (GameCanvas.Instance != null && GameCanvas.Instance.HasVisibleActionDecision) {
+            targetY = ActionAreaTopY + rect.rect.height * 0.5f + 10f;
+        }
+        Vector2 pos = rect.anchoredPosition;
+        if (!Mathf.Approximately(pos.y, targetY)) {
+            rect.anchoredPosition = new Vector2(pos.x, targetY);
+        }
+    }
+
+    private void RestoreBasePlacement() {
+        RectTransform rect = transform as RectTransform;
+        if (rect == null) return;
+        Vector2 pos = rect.anchoredPosition;
+        if (!Mathf.Approximately(pos.y, BaseHintY)) {
+            rect.anchoredPosition = new Vector2(pos.x, BaseHintY);
+        }
+    }
+
+    /// <summary>操作按钮显隐变化后由 GameCanvas 回调：面板可见时重算避让位置。</summary>
+    public void ReapplyPlacement() {
+        if (!gameObject.activeSelf) return;
+        ApplyActionAwarePlacement();
     }
 
     public void UpdateRyuukyokuTenpaiChoice(ICollection<int> waitingTiles) {
