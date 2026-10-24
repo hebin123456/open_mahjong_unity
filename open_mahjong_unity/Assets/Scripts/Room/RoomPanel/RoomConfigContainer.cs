@@ -138,12 +138,17 @@ public class RoomConfigContainer : MonoBehaviour {
         if (roomInfo.room_rule == XiaoshanRuleBootstrap.RuleId
                 || roomInfo.room_rule == ShaoxingRuleBootstrap.RuleId
                 || roomInfo.room_rule == YiwuRuleBootstrap.RuleId) {
-            // 翻财系变体馆规摘要：建房时下发的开局积分与总倍率封顶（绍兴无开局积分则不显示）
+            // 各变体只展示自己实际支持的馆规，不再借用萧山的倍率/积分选项。
             if (TryReadDetailedInt(roomInfo.detailed_config, "starting_score", out int starting)) {
                 result.Add(new KeyValuePair<string, string>("开局积分", $"{starting}分"));
             }
             if (TryReadDetailedInt(roomInfo.detailed_config, "total_cap", out int cap)) {
                 result.Add(new KeyValuePair<string, string>("倍率封顶", $"{cap}倍"));
+            }
+            if (roomInfo.room_rule == YiwuRuleBootstrap.RuleId
+                    && roomInfo.detailed_config != null
+                    && roomInfo.detailed_config.TryGetValue("buy_in", out object buyIn)) {
+                result.Add(new KeyValuePair<string, string>("买子", buyIn?.ToString() == "True" ? "开" : "关"));
             }
             return;
         }

@@ -5,7 +5,7 @@ from .state_machine import Phase as P
 
 
 class EndOfHand:
-    def settle_win(self, winner, source, tile):
+    def settle_win(self, winner, source, tile, payer=None):
         if self.round_settlement is not None or type(winner) is not int or winner not in range(4):
             raise ValueError("本局已结算或和家无效")
         p = self.player_list[winner]

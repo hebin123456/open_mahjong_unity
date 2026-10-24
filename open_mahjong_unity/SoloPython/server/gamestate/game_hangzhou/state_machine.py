@@ -8,6 +8,7 @@ class Phase(str, Enum):
     TURN = "waiting_hand_action"
     DISCARD_ONLY = "onlycut_after_action"
     RESPONSE = "waiting_action_after_cut"
+    KONG = "waiting_action_qianggang"
     TEN_WINDS = "waiting_hangzhou_ten_winds"
     END = "END"
     READY = "waiting_ready"
@@ -17,9 +18,10 @@ class Phase(str, Enum):
 P = Phase
 TRANSITIONS = {
     P.START: {P.TURN},
-    P.TURN: {P.RESPONSE, P.TEN_WINDS, P.END},
+    P.TURN: {P.RESPONSE, P.KONG, P.TEN_WINDS, P.END},
     P.DISCARD_ONLY: {P.TURN, P.RESPONSE, P.END},
     P.RESPONSE: {P.TURN, P.DISCARD_ONLY, P.END},
+    P.KONG: {P.TURN, P.END},
     P.TEN_WINDS: {P.RESPONSE, P.END},
     P.END: {P.READY},
     P.READY: {P.START, P.FINISHED},

@@ -10,7 +10,11 @@ import time
 from ..public.ai.level import DEFAULT_BOT_LEVEL
 from ..public.ai.pacing import wait_bot_delay
 from ...game_calculation.hangzhou.rules import JOKER, can_baotou, waiting_tiles
+from ...game_calculation.shaoxing import rules as sx
+from ...game_calculation.taizhou import rules as tz
+from ...game_calculation.yiwu import rules as yw
 from .actions import CHOWS, claim_tiles, kong_tiles, legal_cuts
+from ..game_yiwu.flow import _kong_tiles as yw_kong_tiles
 
 CHI_MID_OFFSET = {"chi_left": -1, "chi_mid": 0, "chi_right": 1}
 EASY_CLAIM_THRESHOLD, EASY_MAX_JOKERS = 18, 3
@@ -53,14 +57,26 @@ def _claim_code(action, tile):
     return f"s{tile + CHI_MID_OFFSET[action]}"
 
 
-def _best_waits_after_claim(hand, melds, jokers):
+def _waits_for(state, hand, melds, jokers):
+    prefix = getattr(state, "rule_version", "") or ""
+    joker = jokers[0] if jokers else JOKER
+    if prefix.startswith("shaoxing"):
+        return sx.waiting_tiles(hand, melds, joker)
+    if prefix.startswith("taizhou"):
+        return tz.waiting_tiles(hand, melds, joker)
+    if prefix.startswith("yiwu"):
+        return yw.waiting_tiles(hand, melds, joker)
+    return waiting_tiles(hand, melds, jokers)
+
+
+def _best_waits_after_claim(state, hand, melds, jokers):
     """鸣牌并打出一手后的最大进张数（hard 档鸣牌决策用）。"""
     best = 0
     for tile in set(hand):
         rest = list(hand)
         rest.remove(tile)
         try:
-            best = max(best, len(waiting_tiles(rest, melds, jokers)))
+            best = max(best, len(_waits_for(state, rest, melds, jokers)))
         except ValueError:
             continue
     return best
@@ -73,18 +89,27 @@ def _connections(hand, jokers=(JOKER,)):
             + sum(n * (counts[t + 1] * 2 + counts[t + 2]) for t, n in counts.items() if t < 40 and t % 10 <= 7))
 
 
+def _kongs_for(state, index, kind):
+    prefix = getattr(state, "rule_version", "") or ""
+    if prefix.startswith("yiwu"):
+        return yw_kong_tiles(state, index, kind)
+    return kong_tiles(state, index, kind)
+
+
 def choose_action(state, index, actions):
     p = state.player_list[index]
     jokers = tuple(getattr(state, "jokers", (JOKER,)))
     level = resolve_bot_level(state, index)
-    for action in ("hu_self", "ready"):
+    for action in ("hu_self", "hu", "ready"):
         if action in actions:
             return dict(action_type=action)
     if level == MOQIE_LEVEL:
         return _moqie_action(state, index, p, actions)
     for action in ("angang", "jiagang"):
         if action in actions:
-            return dict(action_type=action, target_tile=min(kong_tiles(state, index, action)))
+            candidates = _kongs_for(state, index, action)
+            if candidates:
+                return dict(action_type=action, target_tile=min(candidates))
     if "cut" in actions:
         candidates = []
         legal = legal_cuts(state, index)
@@ -93,7 +118,7 @@ def choose_action(state, index, actions):
             rest.remove(tile)
             # Preserve jokers except when an actual all-waits hand can float.
             floating = tile in jokers and can_baotou(rest, p.combination_tiles, jokers)
-            outs = len(waiting_tiles(rest, p.combination_tiles, jokers)) if len(legal) > 1 else 0
+            outs = len(_waits_for(state, rest, p.combination_tiles, jokers)) if len(legal) > 1 else 0
             candidates.append((floating, outs, _connections(rest, jokers), tile == p.hand_tiles[-1], tile))
         # easy：前三候选里随机挑一手，模拟普通玩家水平。
         candidates.sort(reverse=True)
@@ -126,13 +151,13 @@ def choose_action(state, index, actions):
         for action, rest in claims:
             melds = list(p.combination_tiles) + [_claim_code(action, tile)]
             try:
-                score = (_best_waits_after_claim(rest, melds, jokers),
+                score = (_best_waits_after_claim(state, rest, melds, jokers),
                          max(_connections(rest[:i] + rest[i + 1:], jokers) for i in range(len(rest))))
             except ValueError:
                 continue
             if best is None or score > best[0]:
                 best = (score, action)
-        if best is not None and best[0][0] > len(waiting_tiles(p.hand_tiles, p.combination_tiles, jokers)):
+        if best is not None and best[0][0] > len(_waits_for(state, p.hand_tiles, p.combination_tiles, jokers)):
             return dict(action_type=best[1])
         return dict(action_type="pass")
     before = _connections(p.hand_tiles, jokers)
@@ -156,6 +181,12 @@ async def play_bot(state, index, tick):
     locked = state.is_cai_locked(index)
     view = SimpleNamespace(player_list=players, tiles_list=[0] * len(state.tiles_list), jokers=tuple(state.jokers),
                            bot_level=resolve_bot_level(state, index),
+                           rule_version=getattr(state, "rule_version", ""),
+                           joker_indicator=getattr(state, "joker_indicator", 0),
+                           dead_wall_count=getattr(state, "dead_wall_count", 20),
+                           _wall_floor=lambda replacement=False: (
+                               getattr(state, "dead_wall_count", 20)
+                               + (2 if replacement and getattr(state, "burn_on_kong", True) else 1)),
                            is_cai_locked=lambda _: locked, live_pending_window=dict(state.live_pending_window or {}))
     action = await asyncio.to_thread(choose_action, view, index, list(state.action_dict[index]))
     if action["action_type"] != "pass":

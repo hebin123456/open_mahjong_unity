@@ -9,7 +9,11 @@ public partial class RoomNetworkManager {
             if (!TryResolveRandomSeed(config.RandomSeed,out string seed,out string error)) {
                 CancelPendingRoomEntry(); NotificationManager.Instance.ShowTip("create_room",false,error); return;
             }
-            var detailedConfig = new Dictionary<string, object> { ["rule_version"] = HangzhouGameState.RuleVersion };
+            string ruleVersion = HangzhouGameState.RuleVersion;
+            if (config.Rule == ShaoxingRuleBootstrap.RuleId) ruleVersion = "shaoxing-house-2026-v2";
+            else if (config.Rule == TaizhouRuleBootstrap.RuleId) ruleVersion = "taizhou-huangyan-2026-v2";
+            else if (config.Rule == YiwuRuleBootstrap.RuleId) ruleVersion = "yiwu-house-2026-v2";
+            var detailedConfig = new Dictionary<string, object> { ["rule_version"] = ruleVersion };
             // 萧山馆规：总倍率封顶、开局积分
             if (config.TotalCap.HasValue) {
                 detailedConfig["total_cap"] = config.TotalCap.Value;

@@ -1,6 +1,7 @@
 """Authoritative tile ownership and the lifetime of each discarded-cai lock."""
 
-from .actions import CHOWS, claim_actions, claim_tiles, empty_actions, kong_tiles, legal_cuts, turn_actions
+from .actions import (CHOWS, claim_actions, claim_tiles, empty_actions, kong_tiles,
+                      legal_cuts, rob_claim_actions, turn_actions)
 from .state_machine import Phase as P
 
 
@@ -34,6 +35,8 @@ class HandFlow:
     def begin_turn(self, index, discard_only=False):
         self.current_player_index = index
         self.hand_action_is_gang_draw[index] = self.player_list[index].after_kong
+        if self._before_turn(index):
+            return self.end_draw()
         return self._window(P.DISCARD_ONLY if discard_only else P.TURN, index,
                             actions=turn_actions(self, index, discard_only))
 
@@ -89,6 +92,8 @@ class HandFlow:
             result = self._turn(window, responses[window["player"]])
         elif phase == P.RESPONSE:
             result = self._response(window, responses)
+        elif phase == P.KONG:
+            result = self._kong_response(window, responses)
         elif phase == P.TEN_WINDS:
             result = (self.settle_win(window["player"], "ten_winds", window["tile"])
                       if responses[window["player"]]["action_type"] == "hu_self"
@@ -115,6 +120,7 @@ class HandFlow:
             p.cai_piao_count += 1
             if self.cai_lock_on_discard:
                 self.cai_discard_locks.add(index)
+            self._after_joker_discard(index, p)
         else:
             p.cai_piao_count = 0
         p.discard_tiles.append(tile)
@@ -129,12 +135,16 @@ class HandFlow:
         return self._after_discard(index, tile)
 
     def _after_discard(self, index, tile):
-        if len(self.tiles_list) <= 20:
+        if len(self.tiles_list) <= self.dead_wall_count:
             return self.end_draw()
         return self._window(P.RESPONSE, index, tile, claim_actions(self, index, tile))
 
     def _response(self, window, responses):
         actor, tile = window["player"], window["tile"]
+        winners = [i for i, data in responses.items() if data["action_type"] == "hu"]
+        if winners:
+            winner = min(winners, key=lambda i: (i - actor) % 4)
+            return self.settle_win(winner, "discard", tile, payer=actor)
         claims = [i for i, data in responses.items() if data["action_type"] not in ("pass", "force_pass")]
         if not claims:
             return self.draw_for((actor + 1) % 4)
@@ -167,6 +177,13 @@ class HandFlow:
     def _self_kong(self, index, action, tile):
         p = self.player_list[index]
         drawn = p.has_draw_slot and p.hand_tiles[-1] == tile
+        if action == "jiagang" and self.allow_rob_kong:
+            self.pending_kong = dict(actor=index, tile=tile, concealed=False, is_mo_gang=drawn)
+            return self._window(P.KONG, index, tile, rob_claim_actions(self, index, tile))
+        return self._commit_self_kong(index, action, tile, drawn)
+
+    def _commit_self_kong(self, index, action, tile, drawn):
+        p = self.player_list[index]
         if action == "angang":
             for _ in range(4):
                 p.hand_tiles.remove(tile)
@@ -186,11 +203,23 @@ class HandFlow:
         p.kong_concealed = action == "angang"
         self._owner_operation(index, meld=True)
         self._event(action, index, tile=tile, meld_code=code, combination_mask=mask, is_mo_gang=drawn)
-        # Only self-draw wins are legal: there is no rob-kong response window.
         return self.draw_for(index, replacement=True)
 
+    def _kong_response(self, window, responses):
+        pending = self.pending_kong
+        if pending is None:
+            raise ValueError("没有待处理的加杠")
+        actor, tile = pending["actor"], pending["tile"]
+        winners = [i for i, data in responses.items() if data["action_type"] == "hu"]
+        if winners:
+            winner = min(winners, key=lambda i: (i - actor) % 4)
+            self.pending_kong = None
+            return self.settle_win(winner, "rob_kong", tile, payer=actor)
+        self.pending_kong = None
+        return self._commit_self_kong(actor, "jiagang", tile, pending["is_mo_gang"])
+
     def draw_for(self, index, replacement=False):
-        if len(self.tiles_list) < (22 if replacement else 21):
+        if len(self.tiles_list) < self._wall_floor(replacement):
             return self.end_draw()
         p = self.player_list[index]
         self._owner_operation(index)
@@ -199,9 +228,10 @@ class HandFlow:
         p.drawn_after_cai = p.cai_piao_count > 0
         if replacement:
             tile = self.tiles_list.pop()
-            burned = self.tiles_list.pop()
-            self.burned_tiles.append(burned)
-            self._event("hangzhou_tail_burn", index, tile=burned, burn_count=len(self.burned_tiles))
+            if self.burn_on_kong:
+                burned = self.tiles_list.pop()
+                self.burned_tiles.append(burned)
+                self._event("hangzhou_tail_burn", index, tile=burned, burn_count=len(self.burned_tiles))
         else:
             tile = self.tiles_list.pop(0)
             self.natural_draw_count[index] += 1

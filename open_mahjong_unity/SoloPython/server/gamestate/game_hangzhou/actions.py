@@ -28,9 +28,9 @@ def legal_cuts(state, index):
 def kong_tiles(state, index, kind):
     p = state.player_list[index]
     jokers = tuple(getattr(state, "jokers", (JOKER,)))
-    # A kong consumes a lower tile and burns its upper partner. Do not cross
-    # the reserved twenty-tile wall. Chi/peng may immediately precede a kong.
-    if len(state.tiles_list) < 22:
+    # A kong consumes a lower tile and (for Hangzhou) burns its upper partner.
+    # Do not cross the reserved wall.
+    if len(state.tiles_list) < state._wall_floor(True):
         return set()
     if kind == "angang":
         return {t for t, n in Counter(p.hand_tiles).items() if n == 4 and t not in jokers}
@@ -51,15 +51,17 @@ def turn_actions(state, index, discard_only=False):
 def claim_actions(state, actor, tile):
     actions = empty_actions()
     jokers = tuple(getattr(state, "jokers", (JOKER,)))
-    if tile in jokers or len(state.tiles_list) <= 20:
+    if tile in jokers or len(state.tiles_list) <= state.dead_wall_count:
         return actions
     for index, p in enumerate(state.player_list):
         if index == actor or state.is_cai_locked(index):
             continue
+        if state.allow_discard_win and state.can_win(index, "discard", tile):
+            actions[index].append("hu")
         count = p.hand_tiles.count(tile)
         if count >= 2:
             actions[index].append("peng")
-        if count == 3 and len(state.tiles_list) >= 22:
+        if count == 3 and len(state.tiles_list) >= state._wall_floor(True):
             actions[index].append("gang")
         if index == (actor + 1) % 4 and tile in NUMBERS:
             for action in CHOWS:
@@ -70,6 +72,19 @@ def claim_actions(state, actor, tile):
             actions[index].append("pass")
             if state.sync_tactical_enabled():
                 actions[index].append("force_pass")
+    return actions
+
+
+def rob_claim_actions(state, actor, tile):
+    """加杠被抢：暗杠不可抢；只有和牌响应。"""
+    actions = empty_actions()
+    if tile in tuple(getattr(state, "jokers", (JOKER,))):
+        return actions
+    for index in range(4):
+        if index == actor or state.is_cai_locked(index):
+            continue
+        if state.can_win(index, "rob_kong", tile):
+            actions[index] = ["hu", "pass"]
     return actions
 
 

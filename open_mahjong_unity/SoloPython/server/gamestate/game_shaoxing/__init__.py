@@ -1,3 +1,3 @@
-from .ShaoxingGameState import ShaoxingGameState, _next_indicator_tile  # noqa: F401
+from .ShaoxingGameState import ShaoxingGameState
 
-__all__ = ["ShaoxingGameState", "_next_indicator_tile"]
+__all__ = ["ShaoxingGameState"]

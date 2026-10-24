@@ -26,6 +26,11 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
     SUB_RULE_ID = SUB_RULE
     RULE_VERSION_ID = RULE_VERSION
     DEALER_STREAK_CAP = 3
+    # 地方变体开关：杭州 MIL 仅自摸、无花、杠后烧牌；绍兴/台州/义乌按需覆盖。
+    use_flowers = False
+    allow_discard_win = False
+    allow_rob_kong = False
+    burn_on_kong = True
 
     def __init__(self, game_server=None, room_data=None, calculation_service=None,
                  db_manager=None, gamestate_id="hangzhou-test"):
@@ -33,11 +38,14 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         if data.get("sub_rule", self.SUB_RULE_ID) != self.SUB_RULE_ID:
             raise ValueError("未开放的麻将子规则")
         config = self._normalize_config(data.get("detailed_config"))
-        if any(data.get(key, False) for key in ("use_flowers", "open_cuohe", "claim_protection", "tian_di_ren_he")):
+        if data.get("use_flowers") and not self.use_flowers:
+            raise ValueError("该规则不支持花牌")
+        if any(data.get(key, False) for key in ("open_cuohe", "claim_protection", "tian_di_ren_he")):
             raise ValueError("该规则不支持此选项")
         if len(data["player_list"]) != 4:
             raise ValueError("麻将必须四人开局")
-        data.update(room_rule=self.ROOM_RULE, sub_rule=self.SUB_RULE_ID)
+        data.update(room_rule=self.ROOM_RULE, sub_rule=self.SUB_RULE_ID,
+                    use_flowers=bool(self.use_flowers))
         self.machine = StateMachine()
         super().__init__(game_server, data, calculation_service, db_manager, gamestate_id)
         self.player_list = [HangzhouPlayer(**vars(p)) for p in self.player_list]
@@ -49,7 +57,7 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         self._tactical_recheck_active = self._tactical_in_application = False
         self._tactical_initial_submission = None
         self.action_priority = {"pass": 0, "force_pass": 0, "chi_left": 1, "chi_mid": 1,
-                                "chi_right": 1, "peng": 2, "gang": 2, "hu_self": 3}
+                                "chi_right": 1, "peng": 2, "gang": 2, "hu": 5, "hu_self": 6}
         self.sync_tactical_enabled()
         if room_data is not None and not self.tactical_call:
             room_data["tactical_call"] = False
@@ -72,6 +80,7 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         self.burned_tiles = []
         self.domain_events = []
         self.dice = []
+        self.pending_kong = None
         self._recorded_hint_keys = {}
         self._prepared_hints = {}
         self._async_hints_enabled = False
@@ -100,6 +109,17 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         """开封时的财神集合；萧山子类在每副抓牌后追加翻出的财神。"""
         return (JOKER,)
 
+    def _wall_floor(self, replacement=False):
+        """一次摸牌至少还要留几张；杭州杠后补牌还要再烧一张。"""
+        return self.dead_wall_count + (2 if replacement and self.burn_on_kong else 1)
+
+    def _before_turn(self, index):
+        """摸牌后、开行动窗前的规则钩子（绍兴补花）。返回 True 表示牌墙已尽。"""
+        return False
+
+    def _after_joker_discard(self, index, player):
+        """打出财神后的规则钩子（义乌按飘数缩短牌墙）。"""
+
     def _derive_round_seed(self):
         return derive_round_seed(self.master_seed, self.round_index)
 
@@ -113,6 +133,7 @@ class HangzhouGameState(HandFlow, Protocol, Recording, Tactical, Runtime, EndOfH
         self.round_start_scores = [p.score for p in self.player_list]
         self.cai_discard_locks = set()
         self.burned_tiles, self.domain_events = [], []
+        self.pending_kong = None
         self._recorded_hint_keys = {}
         self._prepared_hints = {}
         physical = [t for t in TILES for _ in range(4)]

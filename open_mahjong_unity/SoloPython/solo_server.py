@@ -421,17 +421,21 @@ def _build_room_data(server: SoloServer, rounds: int = 4, step_timer: int = 20,
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 data[key] = opts[key]
-    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
+    elif rule == XIAOSHAN_RULE:
         # 萧山开局默认 1 秒节奏（其余玩法沿用 0.5 秒快速档）。
         data["bot_speed"] = "medium"
-        # 馆规：开局积分、总倍率封顶与房规开关（如「有财神必须爆头」），
-        # 经 detailed_config 交引擎 normalize_config 校验。绍兴/义乌未传时
-        # 用各自引擎默认（绍兴 8 倍封顶、义乌 64 倍封顶）。
+        # 萧山馆规：开局积分与总倍率封顶，经 detailed_config 交引擎校验。
         detailed = {key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts}
         if isinstance(opts.get("detailed_config"), dict):
             detailed.update(opts["detailed_config"])
         if detailed:
             data["detailed_config"] = detailed
+    elif rule == YIWU_RULE:
+        data["bot_speed"] = "medium"
+        if "buy_in" in opts:
+            data["detailed_config"] = {"buy_in": bool(opts["buy_in"])}
+    elif rule in (SHAOXING_RULE, TAIZHOU_RULE):
+        data["bot_speed"] = "medium"
     return data
 
 
@@ -595,14 +599,14 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
         "step_timer": 20,
         "is_game_running": False,
         # 翻财系变体（萧山/绍兴/义乌）开局默认 1 秒节奏，其余玩法 0.5 秒。
-        "bot_speed": "medium" if rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE) else "fast",
+        "bot_speed": "medium" if rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE, TAIZHOU_RULE) else "fast",
         "is_player_set_random_seed": False,
         "open_cuohe": False,
         "cuohe_type": 0,
         "show_moqie_hint": False,
         "tactical_call": False,
         "claim_protection": False,
-        "use_flowers": False,
+        "use_flowers": rule == SHAOXING_RULE,
         "tian_di_ren_he": False,
         "is_duplicate": False,
         "duplicate_round_count": 0,
@@ -618,11 +622,13 @@ def _build_room_info(server: SoloServer, host_uid: int, rounds: int, room_name: 
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in opts:
                 info[key] = opts[key]
-    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
-        # 翻财系变体馆规回填到房间信息，供客户端房间面板展示开局积分/倍率封顶
+    elif rule == XIAOSHAN_RULE:
+        # 萧山馆规回填到房间信息，供客户端房间面板展示开局积分/倍率封顶
         info["detailed_config"] = {
             key: opts[key] for key in XIAOSHAN_PASSTHROUGH_KEYS if key in opts
         }
+    elif rule == YIWU_RULE:
+        info["detailed_config"] = {"buy_in": bool(opts.get("buy_in", False))}
     server._room = info
     _sync_room_view(server)
     return info
@@ -743,7 +749,7 @@ async def _run_game_loop(server: SoloServer, state) -> None:
 
 
 def _new_game_state(server: SoloServer, room_data: dict, rule: str):
-    """按大厅规则实例化引擎：萧山复用杭州栈，国标走独立引擎并挂计算服务。"""
+    """按大厅规则实例化引擎；杭州系变体共用传输壳，规则各自独立，国标走独立引擎并挂计算服务。"""
     calculation = None
     if rule == XIAOSHAN_RULE:
         from server.gamestate.game_xiaoshan.XiaoshanGameState import XiaoshanGameState
@@ -1382,14 +1388,17 @@ async def _handle_create_room(server: SoloServer, conn: WsConnection, message: d
         for key in GUOBIAO_PASSTHROUGH_KEYS:
             if key in message and message[key] is not None:
                 opts[key] = message[key]
-    elif rule in (XIAOSHAN_RULE, SHAOXING_RULE, YIWU_RULE):
-        # 翻财系变体：透传开局积分、总倍率封顶与房规开关（detailed_config，如「有财神必须爆头」）
+    elif rule == XIAOSHAN_RULE:
+        # 萧山：透传开局积分与总倍率封顶（detailed_config，如「有财神必须爆头」）
         for key in XIAOSHAN_PASSTHROUGH_KEYS:
             if key in message and message[key] is not None:
                 opts[key] = message[key]
         detailed = message.get("detailed_config")
         if isinstance(detailed, dict) and detailed:
             opts["detailed_config"] = detailed
+    elif rule == YIWU_RULE:
+        if message.get("buy_in") is not None:
+            opts["buy_in"] = bool(message["buy_in"])
     server._room_opts = opts
     server._room_password = str(message.get("password") or "")
     room_id = await _pick_room_id(server)

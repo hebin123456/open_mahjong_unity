@@ -64,7 +64,8 @@ class Protocol:
         actor = window["player"] if window.get("player") is not None else self.current_player_index
         phase = P(window["status"])
         payload = wire.ask_action_payload(self, index, self.action_dict.get(index, []), action_player_index=actor,
-                                         cut_tile=window.get("tile") if phase == P.RESPONSE else None)
+                                         cut_tile=window.get("tile") if phase == P.RESPONSE else None,
+                                         rob_kong_tile=window.get("tile") if phase == P.KONG else None)
         info = payload.get("ask_hand_action_info")
         if self._tactical_recheck_active and payload.get("ask_other_action_info"):
             payload["ask_other_action_info"]["is_tactical_recheck"] = True
@@ -134,10 +135,20 @@ class Protocol:
                     hangzhou_round_changes={p.original_player_index: self.round_changes[p.player_index] for p in self.player_list})
         if self.deferred_hu_settlements:
             entry = self.deferred_hu_settlements[0]
+            from ..game_zhongyong.boardcast import _settlement_hu_class
+            hu_class = ("hu_self" if entry["source"] in ("self_draw", "ten_winds")
+                        else _settlement_hu_class(entry))
             info.update(hangzhou_fan_details=entry["fan_details"], hangzhou_win_source=entry["source"],
-                        recycle_discard=False, hu_class="hu_self")
+                        recycle_discard=False, hu_class=hu_class,
+                        ron_discarder_index=entry.get("discarder") if entry.get("discarder") is not None
+                        else entry.get("kong_player"),
+                        is_qianggang=entry["source"] == "rob_kong")
+            winner = self.player_list[entry["winner"]]
+            flowers = list(getattr(winner, "huapai_list", []))
+            if flowers:
+                info["hepai_player_huapai"] = flowers
             if entry["source"] == "ten_winds":
-                info.update(hepai_tile=0, hepai_player_hand=list(self.player_list[entry["winner"]].hand_tiles))
+                info.update(hepai_tile=0, hepai_player_hand=list(winner.hand_tiles))
         else:
             info["score_changes"] = info["hangzhou_round_changes"]
         return self._adapt(dict(type="gamestate/hangzhou/show_result", success=True,

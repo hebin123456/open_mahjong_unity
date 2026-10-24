@@ -34,4 +34,4 @@ async def handle_action(server, connection_id, message, websocket):
         await state.submit_action(index, action, TileId=message.get("TileId"), cutIndex=message.get("cutIndex", -1),
                                   cutClass=message.get("cutClass"), target_tile=message.get("targetTile"))
     except (TypeError, ValueError):
-        await websocket.send_json(dict(type="tips", success=False, message="该动作已失效或不符合杭州规则"))
+        await websocket.send_json(dict(type="tips", success=False, message="该动作已失效或不符合当前玩法规则"))

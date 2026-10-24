@@ -153,9 +153,11 @@ public static class TileIdOrder {
             return false;
         }
         if (TryGetRecordRule(out string recordRule, out string recordSubRule)
-                && (recordRule == "xiaoshan" || recordRule == "shaoxing" || recordRule == "yiwu"
+                && (recordRule == "xiaoshan" || recordRule == "shaoxing" || recordRule == "taizhou"
+                    || recordRule == "yiwu"
                     || (recordSubRule != null && (recordSubRule.StartsWith("xiaoshan")
-                        || recordSubRule.StartsWith("shaoxing") || recordSubRule.StartsWith("yiwu"))))) {
+                        || recordSubRule.StartsWith("shaoxing") || recordSubRule.StartsWith("taizhou")
+                        || recordSubRule.StartsWith("yiwu"))))) {
             Dictionary<string, object> gameTitle = GameRecordManager.Instance.gameRecord?.gameTitle;
             if (gameTitle != null && gameTitle.TryGetValue("joker_tiles", out object tilesObj) && tilesObj != null
                     && tilesObj is System.Collections.IEnumerable list && !(tilesObj is string)) {

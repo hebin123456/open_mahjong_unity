@@ -21,7 +21,8 @@ internal static class HangzhouRuleBootstrap {
         string ruleId, string subRule, string displayName, string subRuleDisplay,
         string subRuleWholeName, string shortName, int lobbyOrder,
         string description = null, string settlementFootnote = null, string roundSupplement = null,
-        bool baotouRequiredSwitch = false, bool allowNegativeSwitch = false, bool claimAllowedSwitch = false) {
+        bool baotouRequiredSwitch = false, bool allowNegativeSwitch = false, bool claimAllowedSwitch = false,
+        bool hasFlowerReplacement = false) {
         RuleNameDictionary.WholeName[ruleId] = displayName;
         RuleNameDictionary.WholeName[subRule] = subRuleWholeName;
         RuleNameDictionary.ShortName[ruleId] = shortName;
@@ -44,10 +45,9 @@ internal static class HangzhouRuleBootstrap {
             Tingpai = query => GameRecordManager.Instance?.ShouldShowRecordTips() == true
                 ? GameRecordManager.Instance.HangzhouWaiting(query) : HangzhouGameState.Active?.Hints.Waiting(query) ?? new HashSet<int>(),
             DescribeWaitingTile = query => WaitTileHint.TsumoOnly("仅自摸"),
-            TileBadgeText = tile => IsJokerTile(tile) ? "财" : null,
+            TileBadgeText = tile => IsJokerTile(tile) ? "财" : (IsShaoxingFlower(tile) ? "花" : null),
             FanNameText = (rule,label) => HangzhouFanText.Name(label),
-            FanValueText = (rule,label) => HangzhouFanText.UsesMultiplier(rule)
-                ? HangzhouFanText.Multiplier(label) : HangzhouFanText.Value(label),
+            FanValueText = (rule,label) => HangzhouFanText.ValueFor(rule,label),
             SettlementTotal = query => new SettlementTotalDisplay { FanText = $"基本分 {query.HuScore}分", ScoreText = query.WinnerPointDelta.HasValue ? $"{query.WinnerPointDelta.Value:+#;-#;0}分" : "" },
             ScoreboardFanText = query => $"基本分 {query.HuScore}分",
             SettlementFootnote = query => settlementFootnote != null
@@ -61,7 +61,7 @@ internal static class HangzhouRuleBootstrap {
             ActionVoice = word => word == "hangzhou_ten_winds" || word == "hu_self" ? "hu" : word == "hangzhou_piao" ? "piao" : null,
             RoundName = round => $"第{round}局", MaxRoundText = rounds => $"{rounds * 4}局", RoundStatusText = info => $"第{info.current_round}局",
             RoundSupplementText = info => roundSupplement ?? "4番封顶",
-            DefaultHepaiLimit = 0, HasFlowerReplacement = false, ReplacementFromTailEnd = true,
+            DefaultHepaiLimit = 0, HasFlowerReplacement = hasFlowerReplacement, ReplacementFromTailEnd = true,
             ShowsRonDangerHints = false,
             ReplayConcealedKongMask = (rule,tiles) => new[] { 2,tiles[0],2,tiles[1],2,tiles[2],2,tiles[3] },
             RulebookKey = "hangzhou",
@@ -76,32 +76,51 @@ internal static class HangzhouRuleBootstrap {
     }
 
     /// <summary>
-    /// 翻财变体判定（按服务端下发的 rule_version 前缀）：萧山/绍兴/义乌每副翻出动态财神，
-    /// 杭州/台州恒白板。绍兴财神为翻牌加一，joker_tiles 下发的已是财神牌本身。
+    /// 翻财变体判定（按服务端下发的 rule_version 前缀）：萧山/绍兴/台州/义乌每副翻出动态财神。
+    /// 绍兴财神为翻牌加一，台州/义乌/萧山为翻出的牌本身；杭州恒白板。
     /// </summary>
     internal static bool IsFlippedJokerVersion(string ruleVersion) => ruleVersion != null
         && (ruleVersion.StartsWith("xiaoshan") || ruleVersion.StartsWith("shaoxing")
-            || ruleVersion.StartsWith("yiwu"));
+            || ruleVersion.StartsWith("taizhou") || ruleVersion.StartsWith("yiwu"));
 
-    /// <summary>白板顶替翻出财神本牌的变体：萧山/义乌；绍兴白板为普通牌，不参与顶替。</summary>
+    /// <summary>白板顶替翻出财神本牌的变体：萧山/义乌/台州（台州只在顺子中顶替）。</summary>
     internal static bool IsWhiteSubstituteVersion(string ruleVersion) => ruleVersion != null
-        && (ruleVersion.StartsWith("xiaoshan") || ruleVersion.StartsWith("yiwu"));
+        && (ruleVersion.StartsWith("xiaoshan") || ruleVersion.StartsWith("yiwu")
+            || ruleVersion.StartsWith("taizhou"));
 
-    /// <summary>萧山家族馆规（萧山/绍兴/义乌）：共享爆头/负分/三摊承包与开局积分、倍率封顶选项。</summary>
-    internal static bool IsXiaoshanFamilyRule(string rule) => HangzhouFanText.UsesMultiplier(rule);
+    /// <summary>绍兴 144 张花麻：中发白与春夏秋冬梅兰竹菊都是花牌。</summary>
+    internal static bool IsShaoxingRule() => HangzhouGameState.Active?.Info?.rule_version?.StartsWith("shaoxing") == true;
+    internal static bool IsShaoxingFlower(int tile) => IsShaoxingRule() && ((tile >= 45 && tile <= 47) || (tile >= 51 && tile <= 58));
+
+    /// <summary>萧山馆规开关只属于萧山；绍兴/台州/义乌各走自己的规则。</summary>
+    internal static bool IsXiaoshanFamilyRule(string rule) => rule == XiaoshanRuleBootstrap.RuleId;
 }
-internal static class HangzhouFanText {
-    /// <summary>番值按「倍率相乘」展示的规则：萧山/绍兴/义乌（家庭房规），杭州/台州按番数。</summary>
-    internal static bool UsesMultiplier(string rule) => rule == XiaoshanRuleBootstrap.RuleId
-        || rule == ShaoxingRuleBootstrap.RuleId || rule == YiwuRuleBootstrap.RuleId;
 
-    public static string Name(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[3] : label; }
-    public static string Value(string label) { var f=label?.Split('|'); return f?.Length>=4 && f[0]=="HZ" ? f[2]+"番" : ""; }
+internal static class HangzhouFanText {
+    /// <summary>番值按「倍率相乘」展示的规则：萧山/义乌。</summary>
+    internal static bool UsesMultiplier(string rule) => rule == XiaoshanRuleBootstrap.RuleId
+        || rule == YiwuRuleBootstrap.RuleId;
+
+    public static string Name(string label) {
+        var f = label?.Split('|');
+        return f?.Length >= 4 ? f[3] : label;
+    }
+    public static string Value(string label) {
+        var f = label?.Split('|');
+        return f?.Length >= 4 ? f[2] + "番" : "";
+    }
+    /// <summary>按规则展示番值：绍兴/台州为番，萧山/义乌为倍率。</summary>
+    public static string ValueFor(string rule, string label) {
+        var f = label?.Split('|');
+        if (f == null || f.Length < 4) return "";
+        if (UsesMultiplier(rule)) return "×" + f[2];
+        return f[2] + "番";
+    }
     /// <summary>萧山按「倍率相乘」，番种标注为 ×N倍 而非 N番；+1 番附加条目（杠后和牌/对手飘）标注 +1番。</summary>
     public static string Multiplier(string label) {
         var f=label?.Split('|');
-        if (f == null || f.Length < 4 || f[0] != "HZ") return "";
+        if (f == null || f.Length < 4) return "";
         return f[1] == "kong_extra" || f[1] == "piao_fail" ? "+"+f[2]+"番" : "×"+f[2]+"倍";
     }
-    public static bool IsTenWinds(IList<string> fans) => fans != null && fans.Any(f => Name(f)=="十风");
+    public static bool IsTenWinds(IList<string> fans) => fans != null && fans.Any(f => Name(f) == "十风");
 }

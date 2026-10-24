@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from ...game_calculation.hangzhou.rules import waiting_tiles
+from ...game_calculation.shaoxing import rules as sx
+from ...game_calculation.taizhou import rules as tz
 from ...game_calculation.xiaoshan import rules as xs
+from ...game_calculation.yiwu import rules as yw
 from .actions import legal_cuts
 from .state_machine import Phase as P
 
@@ -23,10 +26,16 @@ class HintRequest:
 
 
 @lru_cache(maxsize=1024)
-def _waits(hand, melds, jokers=(), physicals=(), xiaoshan=False, baotou_required=False):
-    if xiaoshan:
+def _waits(hand, melds, jokers=(), physicals=(), kind="hangzhou", baotou_required=False):
+    joker = jokers[0] if jokers else 46
+    if kind == "shaoxing":
+        return tuple(sorted(sx.waiting_tiles(hand, melds, joker)))
+    if kind == "taizhou":
+        return tuple(sorted(tz.waiting_tiles(hand, melds, joker)))
+    if kind == "yiwu":
+        return tuple(sorted(yw.waiting_tiles(hand, melds, joker)))
+    if kind == "xiaoshan":
         frames = xs.meld_frames(melds, physicals)
-        joker = jokers[0] if jokers else 46
         # 「有财神必须爆头」：逐进张校验成和后财神能做将，过滤「摸到财神
         # 就能胡」的假听（财神凑面子不满足爆头）。
         return tuple(sorted(xs.waiting_tiles(hand, frames, joker,
@@ -54,19 +63,28 @@ def current_request(state, index, *, for_record=False):
 def compute(request):
     """Worker-safe immutable output. Never receives a GameState or Player."""
     hand, melds = request.hand, request.melds
-    # 萧山家族（萧山/绍兴/义乌）均用动态财神 + 爆头过滤的听牌算法
-    family = request.rule_version.startswith(("xiaoshan", "shaoxing", "yiwu"))
+    prefix = request.rule_version or ""
+    if prefix.startswith("shaoxing"):
+        kind = "shaoxing"
+    elif prefix.startswith("taizhou"):
+        kind = "taizhou"
+    elif prefix.startswith("yiwu"):
+        kind = "yiwu"
+    elif prefix.startswith("xiaoshan"):
+        kind = "xiaoshan"
+    else:
+        kind = "hangzhou"
     waits, by_cut = (), ()
     if len(hand) + 3 * len(melds) == 13:
         waits = _waits(tuple(sorted(hand)), melds, request.jokers, request.physicals,
-                       family, request.baotou_required)
+                       kind, request.baotou_required)
     elif len(hand) + 3 * len(melds) == 14:
         rows = []
         for tile in request.cuts:
             remaining = list(hand)
             remaining.remove(tile)
             rows.append((tile, _waits(tuple(sorted(remaining)), melds, request.jokers,
-                                      request.physicals, family, request.baotou_required)))
+                                      request.physicals, kind, request.baotou_required)))
         by_cut = tuple(rows)
     return waits, by_cut
 

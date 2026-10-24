@@ -29,25 +29,66 @@ public sealed class HangzhouStatePanel : MonoBehaviour {
         instance.info=value; instance.gameObject.SetActive(true); instance.Refresh();
     }
     public static void Hide() { if (instance != null) { instance.gameObject.SetActive(false); instance.info=null; } }
-    /// <summary>财神展示：杭州恒为白板；萧山翻出的牌即财神（白板只固定顶替其本牌）。</summary>
+    /// <summary>财神展示：杭州恒为白板；萧山/义乌翻出的牌即财神；绍兴为翻牌加一；台州白板仅顺子顶替。</summary>
     private static string JokerLabel(HangzhouInfo value) {
+        string version = value?.rule_version ?? "";
         int indicator = value?.joker_indicator ?? 0;
-        if (indicator <= 0 || indicator == JokerWhite) return "白板";
-        return WenzhouText.Tile(indicator) + "（白板顶替）";
+        int joker = value?.joker_tiles != null && value.joker_tiles.Length > 0 ? value.joker_tiles[0] : indicator;
+        if (version.StartsWith("shaoxing")) return $"{TileName(joker)}（翻牌加一）";
+        if (version.StartsWith("taizhou")) return indicator == 46 ? "白板（得）" : $"{TileName(indicator)}（白板仅顺子顶替）";
+        if (version.StartsWith("yiwu")) return indicator == 46 ? "白板（财神）" : $"{TileName(indicator)}（白板顶替）";
+        if (version.StartsWith("xiaoshan")) return indicator == 46 ? "白板" : $"{TileName(indicator)}（白板顶替）";
+        return "白板";
     }
-    private const int JokerWhite = 46;
+    private static bool IsShaoxing(HangzhouInfo value) => (value?.rule_version ?? "").StartsWith("shaoxing");
+    private static bool IsTaizhou(HangzhouInfo value) => (value?.rule_version ?? "").StartsWith("taizhou");
+    private static bool IsYiwu(HangzhouInfo value) => (value?.rule_version ?? "").StartsWith("yiwu");
+    private static string TileName(int tile) {
+        if (tile >= 11 && tile <= 19) return $"{tile % 10}万";
+        if (tile >= 21 && tile <= 29) return $"{tile % 10}饼";
+        if (tile >= 31 && tile <= 39) return $"{tile % 10}条";
+        switch (tile) {
+            case 41: return "东"; case 42: return "南"; case 43: return "西"; case 44: return "北";
+            case 45: return "中"; case 46: return "白"; case 47: return "发";
+            case 51: return "春"; case 52: return "夏"; case 53: return "秋"; case 54: return "冬";
+            case 55: return "梅"; case 56: return "兰"; case 57: return "竹"; case 58: return "菊";
+            default: return "未翻财";
+        }
+    }
+    private static string CaptionText(HangzhouInfo value) {
+        if (IsShaoxing(value)) return $"绍兴花麻 · 财神 {JokerLabel(value)} · 牌墙{Math.Max(0, value?.wall_count ?? 0)}张";
+        if (IsTaizhou(value)) return $"台州黄岩 · 得 {JokerLabel(value)} · 留{Math.Max(0, (value?.dead_wall_count ?? 0) / 2)}墩";
+        if (IsYiwu(value)) return $"义乌麻将 · 财神 {JokerLabel(value)} · 留{Math.Max(0, (value?.dead_wall_count ?? 0) / 2)}墩";
+        return $"财神 {JokerLabel(value)} · {Math.Max(1,value?.dealer_streak ?? 1)}老庄 · {(instance?.expanded == true ? "收起" : "详情")}";
+    }
     public static string Describe(HangzhouInfo value) {
         if (value == null) return "";
         var text=new StringBuilder();
-        text.AppendLine($"财神 {JokerLabel(value)} · {Math.Max(1,value.dealer_streak)}老庄 ×{Math.Max(2,value.dealer_multiplier)}");
-        if (value.joker_indicator > 0 && value.joker_indicator != JokerWhite) text.AppendLine($"本副翻财：{WenzhouText.Tile(value.joker_indicator)}（翻出的牌为财神，白板固定顶替其本牌）");
+        text.AppendLine($"财神 {JokerLabel(value)} · 牌墙{Math.Max(0,value.wall_count)}张");
+        if (IsShaoxing(value)) {
+            text.AppendLine("底花5；花牌/财神各1花，风刻1花，风明杠2/暗杠3，普通明杠1/暗杠2；三番到底。");
+        } else if (IsTaizhou(value)) {
+            text.AppendLine($"得牌万能，白板仅顺子顶替；墙尾留{Math.Max(0,value.dead_wall_count)}张（{Math.Max(0,value.dead_wall_count)/2}墩）。");
+        } else if (IsYiwu(value)) {
+            text.AppendLine($"闲5/庄7底分；自摸×2、财神头×4、单飘×8、双飘×16；墙尾{Math.Max(0,value.dead_wall_count)/2}墩。");
+        } else {
+            text.AppendLine($"{Math.Max(1,value.dealer_streak)}老庄 ×{Math.Max(2,value.dealer_multiplier)}");
+        }
         int Count(int[] values,int i) => values!=null && i<values.Length ? values[i] : 0;
         string Seat(int i) { if(i<0 || i>3) return "?"; int original=value.seat_to_original!=null && i<value.seat_to_original.Length ? value.seat_to_original[i] : i;return new[]{"东起","南起","西起","北起"}[Mathf.Clamp(original,0,3)]; }
         for (int seat=0;seat<4;seat++) {
             string label=Seat(seat);
             bool locked=value.forced_draw_discard!=null && seat<value.forced_draw_discard.Length && value.forced_draw_discard[seat];
-            text.AppendLine($"{label} · 财飘{Count(value.cai_piao_counts,seat)} · 十风{Count(value.ten_winds_counts,seat)}/10 · 吃{Count(value.chi_counts,seat)}{(locked ? " · 仅摸切" : "")}");
-            if (Count(value.chi_counts,seat)>=3) text.AppendLine($"  {label}和：{Seat((seat+3)%4)}全包；{Seat((seat+3)%4)}和：{label}双倍全包");
+            if (IsShaoxing(value)) {
+                text.AppendLine($"{label} · 花{Count(value.flower_counts,seat)} · 吃{Count(value.chi_counts,seat)} · 财飘{Count(value.cai_piao_counts,seat)}{(locked ? " · 仅摸切" : "")}");
+            } else if (IsTaizhou(value)) {
+                text.AppendLine($"{label} · 吃{Count(value.chi_counts,seat)}{(locked ? " · 仅摸切" : "")}");
+            } else if (IsYiwu(value)) {
+                text.AppendLine($"{label} · 财飘{Count(value.cai_piao_counts,seat)} · 吃{Count(value.chi_counts,seat)}{(locked ? " · 仅摸切" : "")}");
+            } else {
+                text.AppendLine($"{label} · 财飘{Count(value.cai_piao_counts,seat)} · 十风{Count(value.ten_winds_counts,seat)}/10 · 吃{Count(value.chi_counts,seat)}{(locked ? " · 仅摸切" : "")}");
+                if (Count(value.chi_counts,seat)>=3) text.AppendLine($"  {label}和：{Seat((seat+3)%4)}全包；{Seat((seat+3)%4)}和：{label}双倍全包");
+            }
         }
         var payment=value.ledger?["payment"] as Newtonsoft.Json.Linq.JObject;
         if (payment?["transfers"] is Newtonsoft.Json.Linq.JArray transfers) {
@@ -62,15 +103,14 @@ public sealed class HangzhouStatePanel : MonoBehaviour {
         var score=value.ledger?["score"] as Newtonsoft.Json.Linq.JObject;
         var decomposition=score?["decomposition"] as Newtonsoft.Json.Linq.JObject;
         if (decomposition?["joker_uses"] is Newtonsoft.Json.Linq.JArray uses && uses.Count>0) {
-            string Tile(int id) => id>=41 && id<=47 ? new[]{"东","南","西","北","中","白","发"}[id-41] : $"{id%10}{(id/10==1 ? "万" : id/10==2 ? "饼" : "条")}";
-            text.AppendLine("财神替代："+string.Join("、",uses.OfType<Newtonsoft.Json.Linq.JObject>().Select(use=>Tile((int?)use["logical"] ?? 0))));
+            text.AppendLine("财神替代："+string.Join("、",uses.OfType<Newtonsoft.Json.Linq.JObject>().Select(use=>TileName((int?)use["logical"] ?? 0))));
         }
         text.AppendLine($"杠后暗弃{value.burned_count}张");
         if (value.phase=="waiting_hangzhou_ten_winds") text.AppendLine("十风和牌选择");
         return text.ToString().TrimEnd();
     }
     private void Refresh() {
-        caption.text=$"财神 {JokerLabel(info)} · {Math.Max(1,info.dealer_streak)}老庄 · {(expanded ? "收起" : "详情")}";
+        caption.text=CaptionText(info);
         body.text=Describe(info); body.gameObject.SetActive(expanded);
         ((RectTransform)transform).sizeDelta=new Vector2(410,expanded ? Mathf.Min(450,body.preferredHeight+62) : 36);
     }
