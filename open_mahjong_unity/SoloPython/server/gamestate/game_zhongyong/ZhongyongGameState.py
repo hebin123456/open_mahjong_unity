@@ -67,6 +67,7 @@ class ZhongyongPlayer:
     profile_used: int = 1
     character_used: int = 1
     voice_used: int = 1
+    bot_level: str = ""  # 机器人人设难度；跟随玩家而非座位，换庄轮转后仍保持
 
     @property
     def is_bot(self) -> bool:

@@ -26,7 +26,14 @@ MOQIE_LEVEL = "moqie"
 
 def resolve_bot_level(state, index):
     """座位难度：单机房间给机器人固定梯度（1=摸切流、5=低级、2=中等、3=困难），
-    其余座位退回房间级 bot_level；房主显式改难度时会统一覆盖 bot_level_by_index。"""
+    其余座位退回房间级 bot_level；房主显式改难度时会统一覆盖。
+
+    优先读玩家自身的人设（换庄时 player_list 会轮转，按座位下标查会串档）；
+    bot_level_by_index 仅供教程等固定座位场景兜底。"""
+    p = state.player_list[index] if 0 <= index < len(state.player_list) else None
+    level = getattr(p, "bot_level", "") if p is not None else ""
+    if level:
+        return level
     per_seat = getattr(state, "bot_level_by_index", None) or {}
     level = per_seat.get(index)
     return level or getattr(state, "bot_level", DEFAULT_BOT_LEVEL)

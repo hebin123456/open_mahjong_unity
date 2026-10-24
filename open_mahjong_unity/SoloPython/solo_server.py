@@ -807,9 +807,13 @@ async def start_solo_game(server: SoloServer, conn: WsConnection, **opts):
             state.bot_level = normalize_bot_level((server._room or {}).get("bot_level"))
         except Exception as exc:      # 配置失败不影响对局
             logger.warning("configure_bot_level 失败: %s", exc)
-        # 机器人人设难度（摸切/中等/困难；房主改过难度则统一覆盖）
-        state.bot_level_by_index = _bot_levels_for_players(
-            room_data.get("player_list") or [], server._room)
+        # 机器人人设难度（摸切/低级/中级/高级；房主改过难度则统一覆盖）。
+        # 难度绑在玩家身上而不是座位下标：开局随机庄家与后续换庄都会轮转座位。
+        levels = _bot_levels_for_players(room_data.get("player_list") or [], server._room)
+        state.bot_level_by_index = levels
+        for index, player in enumerate(state.player_list):
+            if getattr(player, "is_bot", False):
+                player.bot_level = levels.get(index, "")
 
         server._game = state
         server.gamestate_manager._game = state

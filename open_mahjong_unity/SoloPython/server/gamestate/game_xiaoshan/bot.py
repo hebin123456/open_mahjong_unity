@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import time
 
 from ..game_hangzhou.actions import CHOWS, claim_tiles, legal_cuts
+from ..game_hangzhou.bot import MOQIE_LEVEL, resolve_bot_level
 from ..public.ai.level import DEFAULT_BOT_LEVEL
 from ..public.ai.pacing import wait_bot_delay
 from ...game_calculation.xiaoshan import rules as xs
@@ -51,15 +52,33 @@ def _connections(hand, joker):
                   if t < 40 and t % 10 <= 7))
 
 
+def _moqie_action(state, index, p, actions, joker):
+    """摸切流：优先打刚摸进的牌；不杠、不鸣牌（含不暗杠）。"""
+    if "cut" not in actions:
+        return dict(action_type="pass")
+    legal = legal_cuts(state, index)
+    last = p.hand_tiles[-1]
+    if last in legal:
+        return dict(action_type="cut", TileId=last, cutIndex=len(p.hand_tiles) - 1,
+                    cutClass=p.has_draw_slot)
+    plain = [t for t in sorted(legal) if t != joker] or sorted(legal)
+    tile = plain[0]
+    position = max(i for i, t in enumerate(p.hand_tiles) if t == tile)
+    return dict(action_type="cut", TileId=tile, cutIndex=position,
+                cutClass=p.has_draw_slot and position == len(p.hand_tiles) - 1)
+
+
 def choose_action(state, index, actions):
     p = state.player_list[index]
     joker = state.joker_indicator
-    level = getattr(state, "bot_level", DEFAULT_BOT_LEVEL)
+    level = resolve_bot_level(state, index)
     frames = tuple((code, tuple(mask[1::2]))
                    for code, mask in zip(p.combination_tiles, p.combination_mask))
-    for action in ("hu_self", "ready"):
+    for action in ("hu_self", "hu", "ready"):
         if action in actions:
             return dict(action_type=action)
+    if level == MOQIE_LEVEL:
+        return _moqie_action(state, index, p, actions, joker)
     for action in ("angang", "jiagang"):
         if action in actions:
             return dict(action_type=action, target_tile=min(kong_tiles(state, index, action)))
@@ -135,7 +154,7 @@ async def play_bot(state, index, tick):
     locked = state.is_cai_locked(index)
     view = SimpleNamespace(player_list=players, tiles_list=[0] * len(state.tiles_list),
                            jokers=(state.joker_indicator,), joker_indicator=state.joker_indicator,
-                           bot_level=getattr(state, "bot_level", DEFAULT_BOT_LEVEL),
+                           bot_level=resolve_bot_level(state, index),
                            is_cai_locked=lambda _: locked,
                            live_pending_window=dict(state.live_pending_window or {}))
     action = await asyncio.to_thread(choose_action, view, index, list(state.action_dict[index]))
