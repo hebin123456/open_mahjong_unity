@@ -16,11 +16,14 @@ public partial class GameCanvas {
 
     private const float SeatPanelMargin = 8f;
 
-    // 宽屏比阈值与左家面板让位量：Magic V5 外屏折叠横屏逻辑 2156×962
-    // (2.24:1)，展开内屏 ~1499×1384 (1.08:1)、16:9 桌面 1.78:1 都低于阈值。
-    // 让位量 = 一个头像宽度（ProfileImageEdge 110）。
+    // 宽屏比阈值与让位量：折叠横屏 letterbox 到 16:9 后逻辑画布 1920×1080
+    // (1.78:1)，展开内屏 1662×1247 (1.33:1)。折叠/宽屏态顶家（对家）面板右缘
+    // 会压住对家的吃碰副露区，往左让 40；左家让位一个头像宽度只在更宽的
+    // 外屏任务里触发。
     private const float WideAspectThreshold = 2f;
     private const float LeftPanelWideShift = 110f;
+    private const float FoldAspectThreshold = 1.6f;
+    private const float TopPanelFoldShift = 40f;
 
     private Vector2 lastCanvasSize;
     private string adaptiveRoomRule;
@@ -93,21 +96,23 @@ public partial class GameCanvas {
         UiRectClamp.ClampIntoCanvas(gameSceneUi.Find("#ExitButtonManager") as RectTransform);
     }
 
-    /// <summary>把四个座位面板钳制回画布内：锚点与摆位不变，只在画布放不下时收进来。</summary>
+    /// <summary>把四个座位面板钳制回画布内，并按形态做横向让位。</summary>
     private void ClampSeatPanelsIntoCanvas(Vector2 canvasSize) {
         if (canvasSize.x <= 1f || canvasSize.y <= 1f) return;
-        AdaptSeatPanel(playerSelfPanel, canvasSize, false);
-        AdaptSeatPanel(playerLeftPanel, canvasSize, canvasSize.x / canvasSize.y >= WideAspectThreshold);
-        AdaptSeatPanel(playerTopPanel, canvasSize, false);
-        AdaptSeatPanel(playerRightPanel, canvasSize, false);
+        float aspect = canvasSize.x / canvasSize.y;
+        AdaptSeatPanel(playerSelfPanel, canvasSize, 0f);
+        AdaptSeatPanel(playerLeftPanel, canvasSize,
+            aspect >= WideAspectThreshold ? -LeftPanelWideShift : 0f);
+        AdaptSeatPanel(playerTopPanel, canvasSize,
+            aspect >= FoldAspectThreshold ? -TopPanelFoldShift : 0f);
+        AdaptSeatPanel(playerRightPanel, canvasSize, 0f);
     }
 
     /// <summary>
-    /// 单个座位面板适配：先复位到场景原始摆位（首次适配时记录），再钳回画布；
-    /// 折叠态宽屏比下左家面板整体再左移一个头像宽度让开对家吃牌区。从原始摆
-    /// 位出发保证折/展循环里位移不叠加。
+    /// 单个座位面板适配：先复位到场景原始摆位（首次适配时记录），再钳回画布，
+    /// 最后按需横向让位（负数左移）。从原始摆位出发保证折/展循环里位移不叠加。
     /// </summary>
-    private void AdaptSeatPanel(GamePlayerPanel panel, Vector2 canvasSize, bool wideShiftLeft) {
+    private void AdaptSeatPanel(GamePlayerPanel panel, Vector2 canvasSize, float xShift) {
         if (panel == null) return;
         RectTransform rt = panel.transform as RectTransform;
         if (rt == null || rt.anchorMin != rt.anchorMax) return; // 仅处理点锚座位面板
@@ -117,8 +122,8 @@ public partial class GameCanvas {
         }
         rt.anchoredPosition = original;
         ClampPanelIntoCanvas(panel, canvasSize);
-        if (wideShiftLeft) {
-            rt.anchoredPosition += new Vector2(-LeftPanelWideShift, 0f);
+        if (Mathf.Abs(xShift) > 0.01f) {
+            rt.anchoredPosition += new Vector2(xShift, 0f);
         }
     }
 
