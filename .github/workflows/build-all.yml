@@ -158,6 +158,11 @@ jobs:
           "$ZIPALIGN" -c -p 4 "$GITHUB_WORKSPACE/Android.apk"
           echo "zipalign OK"
           sha256sum "$GITHUB_WORKSPACE/Android.apk"
+          # APK 文件哈希随 artifact 上传并附到 Release notes：
+          # 大文件下载不完整（尾部截断正好切掉 v2/v3 签名块）时部分安装器会
+          # 报「未签名」，用户可先核对哈希判断是不是下载损坏。
+          APK_SHA256="$(sha256sum "$GITHUB_WORKSPACE/Android.apk" | awk '{print $1}')"
+          echo "$APK_SHA256" > "$GITHUB_WORKSPACE/apk-sha256.txt"
           # 输出签名证书指纹：随 artifact 上传并附到 Release notes，覆盖安装前可核对签名一致性
           CERT_SHA256="$(openssl pkcs12 -in /tmp/release.keystore -passin "pass:$KEYSTORE_PASS" -nodes 2>/dev/null \
             | openssl x509 -fingerprint -sha256 -noout | sed 's/.*=//' | tr -d ':')"
@@ -170,6 +175,7 @@ jobs:
           name: android-apk
           path: |
             ${{ github.workspace }}/Android.apk
+            ${{ github.workspace }}/apk-sha256.txt
             ${{ github.workspace }}/cert-sha256.txt
 
   build-windows:
@@ -448,10 +454,13 @@ jobs:
           TAG="${{ github.event.inputs.releaseTag || 'latest' }}"
           ls -R artifacts
           # 只上传实际存在的产物（IPA 可能因 macOS runner 容量问题被跳过）
-          FILES=$(find artifacts -type f -not -name cert-sha256.txt | tr '\n' ' ')
+          FILES=$(find artifacts -type f -not -name cert-sha256.txt -not -name apk-sha256.txt | tr '\n' ' ')
           CERT_FPRINT="$(cat artifacts/android-apk/cert-sha256.txt 2>/dev/null || echo 未获取)"
+          APK_SHA="$(cat artifacts/android-apk/apk-sha256.txt 2>/dev/null || echo 未获取)"
+          APK_SIZE="$(stat -c%s artifacts/android-apk/Android.apk 2>/dev/null || echo 未知)"
           echo "Publishing [$FILES] to release '$TAG'"
           echo "Certificate SHA-256: $CERT_FPRINT"
+          echo "APK SHA-256: $APK_SHA"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" \
             --title "单机版 + iOS 未签名包 ($TAG)" \
@@ -462,5 +471,8 @@ jobs:
           - Linux.zip：Linux 解压后 chmod +x Linux && ./Linux 运行
           - Unsigned.ipa：iOS 未签名包，需用 Sideloadly/AltStore + 免费 Apple ID 自签后安装（7天有效期）
 
-          签名证书 SHA-256：${CERT_FPRINT}（固定入库 keystore CN=open_mahjong；覆盖安装提示签名不一致时核对此指纹）" \
+          签名证书 SHA-256：${CERT_FPRINT}（固定 keystore；覆盖安装提示签名不一致时核对此指纹）
+
+          Android.apk 大小：${APK_SIZE} 字节 · 文件 SHA-256：${APK_SHA}
+          安装提示「未签名/解析失败」时先用哈希核对下载完整性：大文件下载中断会截掉尾部签名块。" \
             $FILES
