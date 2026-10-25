@@ -42,6 +42,10 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
     def __init__(self, game_server=None, room_data=None, calculation_service=None,
                  db_manager=None, gamestate_id="xiaoshan-test"):
         super().__init__(game_server, room_data, calculation_service, db_manager, gamestate_id)
+        # 萧山打到墙空才流局，没有保留墙：清零 dead_wall_count，让广播的
+        # tile_count（boardcast.py 按 len(tiles_list) - dead_wall_count 计算）
+        # 反映真实可摸牌数，否则客户端在墙还剩 20 张时就显示「余:0」。
+        self.dead_wall_count = 0
         # 萧山不锁出财神后他家的吃碰；并跨局累计承包关系（按牌手原始座位号）。
         self.cai_lock_on_discard = False
         self.joker_indicator = 0
