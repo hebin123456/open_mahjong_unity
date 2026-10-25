@@ -34,7 +34,8 @@ class XiaoshanHandFlow(HandFlow):
                 raise ValueError("不能对指定牌开杠")
 
     def _after_discard(self, index, tile):
-        if len(self.tiles_list) <= 20:
+        # 萧山打到最后一张牌：墙空才流局（杭州留 20 张底牌）。
+        if not self.tiles_list:
             return self.end_draw()
         return self._window(P.RESPONSE, index, tile, claim_actions(self, index, tile))
 

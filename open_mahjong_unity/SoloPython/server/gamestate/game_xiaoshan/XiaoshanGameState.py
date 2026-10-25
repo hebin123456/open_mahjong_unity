@@ -32,6 +32,12 @@ class XiaoshanGameState(XiaoshanHandFlow, HangzhouGameState):
     SUB_RULE_ID = xs.SUB_RULE
     RULE_VERSION_ID = xs.RULE_VERSION
     DEALER_STREAK_CAP = xs.DEFAULT_DEALER_CAP
+    # 萧山杠后只从墙尾补 1 张，不烧牌（杭州杠补 1 烧 1）。
+    burn_on_kong = False
+
+    def _wall_floor(self, replacement=False):
+        """萧山打到最后一张牌：摸牌与杠补牌都只要求墙里还有 1 张，墙空才流局。"""
+        return 1
 
     def __init__(self, game_server=None, room_data=None, calculation_service=None,
                  db_manager=None, gamestate_id="xiaoshan-test"):

@@ -47,7 +47,10 @@ def kong_tiles(state, index, kind):
 
     客户端选项、目标提交与验证全部使用逻辑身份；白板 4 张与「白板+本牌」
     混合都归一为本牌暗杠，避免客户端按物理牌计数漏出候选导致卡死。
+    杠后要补 1 张墙牌：墙空时不再提供杠，杜绝「点了杠却无牌可补」。
     """
+    if not state.tiles_list:
+        return set()
     p = state.player_list[index]
     joker = state.joker_indicator
     if kind == "angang":
@@ -59,7 +62,8 @@ def kong_tiles(state, index, kind):
 
 def claim_actions(state, actor, tile):
     actions = empty_actions()
-    if tile in state.jokers or len(state.tiles_list) <= 20:
+    # 萧山打到最后一张牌：墙空才关吃碰杠；明杠要求墙里还有 1 张可补。
+    if tile in state.jokers or not state.tiles_list:
         return actions
     joker = state.joker_indicator
     logical = natural(tile, joker)
@@ -68,7 +72,7 @@ def claim_actions(state, actor, tile):
             continue
         if physical_for(p.hand_tiles, [logical] * 2, joker):
             actions[index].append("peng")
-        if len(state.tiles_list) >= 22 and physical_for(p.hand_tiles, [logical] * 3, joker):
+        if physical_for(p.hand_tiles, [logical] * 3, joker):
             actions[index].append("gang")
         if index == (actor + 1) % 4 and logical in NUMBERS:
             for action in CHOWS:
