@@ -5,6 +5,9 @@
 - 复用线上服务端的杭州对局引擎（``server.gamestate.game_hangzhou``）与其动作处理 ``handle_action``。
 - 默认监听 127.0.0.1 提供单机对局；``SOLO_LAN=1`` 时监听 0.0.0.0 并开启 UDP 房间发现，
   同一局域网的其它客户端可搜索并加入房间，房主可随时用机器人补位。
+- 局域网模式下同时托管 WebGL 网页客户端（``SOLO_WEBROOT`` 指向 Unity WebGL 构建产物，
+  Android 从 APK 内 StreamingAssets/WebHost 解压）：同网段设备用浏览器打开
+  ``http://<主机IP>:18763/`` 即可直接加入房间；``GET /host_info`` 返回加入 URL 与二维码矩阵。
 
 协议流程（客户端 SoloMode）：
     send_release_version  -> 忽略（单机不校验版本）
@@ -24,15 +27,19 @@ import json
 import logging
 import os
 import random
+import shutil
 import socket
 import struct
 import sys
 import uuid
+import zipfile
 
 # 让 `server` 包可被导入（本文件位于 open_mahjong_server/ 下，与 server/ 同级）
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+import solo_qr  # noqa: E402  同目录的纯标准库二维码编码器（/host_info 用）
 
 logger = logging.getLogger("solo")
 
@@ -148,6 +155,202 @@ def _env_host() -> str:
     if host:
         return host
     return "0.0.0.0" if _env_lan_mode() else "127.0.0.1"
+
+
+# ----------------------------------------------------------------------------
+# 网页加入（WebGuest）：静态托管 + 主机信息
+# ----------------------------------------------------------------------------
+# APK 内 StreamingAssets 的WebHost 前缀（CI 把 WebGL 构建产物放进来）
+_ANDROID_WEBHOST_PREFIX = "assets/StreamingAssets/WebHost/"
+
+# WebGL 产物常用扩展名 → Content-Type（.br/.gz 壳剥掉后再查表；
+# 不设置 Content-Encoding：DecompressionFallback 构建的加载器会自行解压 .br）
+_WEB_CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".wasm": "application/wasm",
+    ".data": "application/octet-stream",
+    ".json": "application/json; charset=utf-8",
+    ".symbols": "application/octet-stream",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+
+def _content_type_for(file_path: str) -> str:
+    name = file_path.lower()
+    # 兼容两种压缩命名：<name>.wasm.br（后缀壳）与 <name>.wasmbr（拼接式）
+    for shell in (".br", ".gz"):
+        if name.endswith(shell):
+            name = name[: -len(shell)]
+            break
+    if name.endswith((".jsbr", ".wasmbr", ".databr")):
+        name = name[:-2]
+    return _WEB_CONTENT_TYPES.get(os.path.splitext(name)[1], "application/octet-stream")
+
+
+def _resolve_webroot() -> str:
+    """网页客户端静态目录：环境变量 → Android APK 解压 → 仓库开发兜底。"""
+    env = os.environ.get("SOLO_WEBROOT")
+    if env and os.path.isdir(env):
+        return env
+    if _running_under_chaquopy():
+        return _extract_android_webhost()
+    candidate = os.path.normpath(
+        os.path.join(_ROOT, "..", "Assets", "StreamingAssets", "WebHost"))
+    if os.path.isdir(candidate):
+        return candidate
+    return ""
+
+
+def _extract_android_webhost() -> str:
+    """Chaquopy 侧从 APK 解压 StreamingAssets/WebHost 到 filesDir/webhost。
+
+    以包内 .version 文件做幂等标记：版本一致且本地已有同名文件时跳过解压。
+    任何失败都返回空串（网页加入停用，不影响对局）。
+    """
+    try:
+        from java import jclass
+
+        app = None
+        try:  # Unity 应用的可靠入口：UnityPlayer 静态字段取当前 Activity
+            activity = jclass("com.unity3d.player.UnityPlayer").currentActivity
+            if activity is not None:
+                app = activity.getApplicationContext()
+        except Exception:
+            pass
+        if app is None:  # 兜底：ActivityThread 反射取 Application
+            app = jclass("android.app.ActivityThread").currentApplication()
+        if app is None:
+            return ""
+        apk = str(app.getApplicationInfo().sourceDir)
+        target_root = os.path.join(str(app.getFilesDir()), "webhost")
+        with zipfile.ZipFile(apk) as zf:
+            names = [n for n in zf.namelist() if n.startswith(_ANDROID_WEBHOST_PREFIX)]
+            if not names:
+                return ""
+            try:
+                version = zf.read(_ANDROID_WEBHOST_PREFIX + ".version").decode(
+                    "utf-8", "replace").strip()
+            except KeyError:
+                version = ""
+            marker = os.path.join(target_root, ".version")
+            if version and os.path.isfile(marker):
+                try:
+                    with open(marker, encoding="utf-8") as f:
+                        if f.read().strip() == version:
+                            return target_root
+                except OSError:
+                    pass
+            prefix_len = len(_ANDROID_WEBHOST_PREFIX)
+            for name in names:
+                rel = name[prefix_len:]
+                if not rel or rel.endswith("/"):
+                    continue
+                dest = os.path.join(target_root, rel)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(name) as src, open(dest, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        logger.info("WebHost 已解压: %s（version=%s）", target_root, version or "无")
+        return target_root
+    except Exception as exc:
+        logger.warning("解压 StreamingAssets/WebHost 失败（网页加入停用）: %s", exc)
+        return ""
+
+
+def _best_lan_ip() -> str:
+    """取局域网加入 URL 用的本机 IPv4：UDP 路由探测优先，失败回退主机名解析。"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # connect 到不可达地址不会发包，仅让内核选定出口网卡
+            s.connect(("10.255.255.255", 1))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+        finally:
+            s.close()
+    except OSError:
+        pass
+    for ip in sorted(_local_ip_set()):
+        if ip.startswith(("192.168.", "10.", "172.")):
+            return ip
+    return ""
+
+
+def _host_info_payload(server) -> dict:
+    """GET /host_info 的响应：加入 URL、二维码矩阵与当前房间摘要。"""
+    ip = _best_lan_ip()
+    port = getattr(server, "ws_port", 18763)
+    url = f"http://{ip}:{port}/" if ip else ""
+    qr = None
+    if url:
+        try:
+            qr = solo_qr.encode(url)
+        except Exception as exc:
+            logger.warning("二维码生成失败: %s", exc)
+    return {
+        "ok": True,
+        "lan_ip": ip,
+        "port": port,
+        "url": url,
+        "ws_url": f"ws://{ip}:{port}/game" if ip else "",
+        "qr": qr,
+        "room": _room_summary(server),
+    }
+
+
+def _safe_webfile(webroot: str, route: str) -> str:
+    """把 URL 路径映射到 webroot 内的文件；越界或目录穿越返回 None。"""
+    rel = route.lstrip("/")
+    if rel in ("", "index.html"):
+        rel = "index.html"
+    full = os.path.normpath(os.path.join(webroot, rel))
+    root = os.path.normpath(webroot)
+    if full != root and not full.startswith(root + os.sep):
+        return None
+    return full
+
+
+def _write_http(writer, status: str, content_type: str, body: bytes) -> None:
+    head = ("HTTP/1.1 " + status + "\r\n"
+            "Content-Type: " + content_type + "\r\n"
+            "Content-Length: " + str(len(body)) + "\r\n"
+            "Cache-Control: no-cache\r\n"
+            "Connection: close\r\n"
+            "\r\n").encode("ascii")
+    writer.write(head + body)
+
+
+async def _serve_http(server, path: str, reader, writer) -> None:
+    """处理非 WebSocket 的普通 GET：/host_info 与静态文件（不写 _note 诊断缓冲）。"""
+    try:
+        route = path.split("?", 1)[0].split("#", 1)[0]
+        if route == "/host_info":
+            body = json.dumps(_host_info_payload(server), ensure_ascii=False).encode("utf-8")
+            _write_http(writer, "200 OK", "application/json; charset=utf-8", body)
+        else:
+            webroot = server.webroot
+            file_path = _safe_webfile(webroot, route) if webroot else None
+            if file_path and os.path.isfile(file_path):
+                with open(file_path, "rb") as f:
+                    body = f.read()
+                _write_http(writer, "200 OK", _content_type_for(file_path), body)
+            else:
+                _write_http(writer, "404 Not Found", "text/plain; charset=utf-8",
+                            b"not found")
+        await writer.drain()
+    except Exception:
+        logger.exception("HTTP 静态服务异常 path=%s", path)
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
 
 
 # 国标建房会透传给引擎的开局参数（起和番限制、花牌、天地人和、错和、鸣牌保护等）
@@ -298,8 +501,15 @@ async def read_frame(reader):
 
 
 async def _handshake(reader, writer):
-    """完成 HTTP Upgrade 握手；成功返回请求 path，失败返回 None。"""
-    raw = await reader.readuntil(b"\r\n\r\n")
+    """完成 HTTP Upgrade 握手；返回 ("ws", path)。
+
+    不带 ``sec-websocket-key`` 的普通 GET 返回 ("http", path)，由调用方交给
+    静态托管处理；读请求失败返回 (None, None)。
+    """
+    try:
+        raw = await reader.readuntil(b"\r\n\r\n")
+    except (asyncio.IncompleteReadError, ConnectionError, OSError):
+        return None, None
     text = raw.decode("utf-8", "replace")
     lines = text.split("\r\n")
     parts = lines[0].split(" ")
@@ -311,9 +521,7 @@ async def _handshake(reader, writer):
             headers[k.strip().lower()] = v.strip()
     key = headers.get("sec-websocket-key")
     if not key:
-        writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
-        await writer.drain()
-        return None
+        return "http", path
     accept = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
     writer.write((
         "HTTP/1.1 101 Switching Protocols\r\n"
@@ -322,7 +530,7 @@ async def _handshake(reader, writer):
         f"Sec-WebSocket-Accept: {accept}\r\n\r\n"
     ).encode())
     await writer.drain()
-    return path
+    return "ws", path
 
 
 # ----------------------------------------------------------------------------
@@ -366,12 +574,26 @@ class SoloServer:
         self._label_rule = HANGZHOU_RULE             # 对外展示的大厅规则（杭州/萧山）
         self._label_sub_rule = HANGZHOU_SUB_RULE
         self._start_lock = asyncio.Lock()
+        # 网页加入：懒解析的静态目录与实际监听端口
+        self._webroot = None
+        self.ws_port = 18763
         # 局域网多人：真人 user_id 动态分配（101 起自增），昵称按序号生成
         self._next_human_id = HUMAN_USER_ID
         self._human_names = {}
         # Android(Chaquopy) 无法由 C# 注入环境变量，默认开启局域网；PC 由 Bootstrap 注入 SOLO_LAN。
         self.lan_mode = _env_lan_mode()
         self._discovery_transport = None
+
+    @property
+    def webroot(self) -> str:
+        """网页客户端静态目录（首次访问时解析并缓存）。"""
+        if self._webroot is None:
+            self._webroot = _resolve_webroot()
+            if self._webroot:
+                logger.info("WebHost 静态目录: %s", self._webroot)
+            else:
+                logger.info("WebHost 静态目录不可用，网页加入停用")
+        return self._webroot
 
 
 # ----------------------------------------------------------------------------
@@ -1763,8 +1985,11 @@ async def _handle_message(server: SoloServer, conn: WsConnection, message: dict)
 
 
 async def _serve_connection(server: SoloServer, reader, writer):
-    path = await _handshake(reader, writer)
-    if path is None:
+    kind, path = await _handshake(reader, writer)
+    if kind is None:
+        return
+    if kind == "http":
+        await _serve_http(server, path, reader, writer)
         return
     conn = WsConnection(reader, writer)
     conn.server = server
@@ -1922,6 +2147,7 @@ async def run_server(host=None, port=None, ready=None):
         port = int(os.environ.get("SOLO_PORT", "18763"))
     srv = await asyncio.start_server(
         lambda r, w: _serve_connection(server, r, w), host, port)
+    server.ws_port = port
     logger.info("单机服务已监听 ws://%s:%d/game（局域网=%s）", host, port, server.lan_mode)
     if server.lan_mode:
         await _start_discovery(server, port)
