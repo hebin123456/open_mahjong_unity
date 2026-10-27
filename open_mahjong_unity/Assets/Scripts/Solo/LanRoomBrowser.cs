@@ -82,10 +82,15 @@ public class LanRoomBrowser : MonoBehaviour {
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Create() {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // 浏览器访客连的是页面来源主机（WebGuestBootstrap），UDP 发现与本机切换不适用。
+        return;
+#else
         if (!ConfigManager.SoloMode) return;
         var go = new GameObject("LanRoomBrowser");
         DontDestroyOnLoad(go);
         instance = go.AddComponent<LanRoomBrowser>();
+#endif
     }
 
     private void Update() {
@@ -100,6 +105,11 @@ public class LanRoomBrowser : MonoBehaviour {
     /// 超时未搜到则提示失败。由 RoomListPanel 在单机模式"加入房间"时调用。
     /// </summary>
     public static void JoinRoomById(string roomId) {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // 浏览器访客不走 UDP 搜索：RoomListPanel 已直连页面来源主机按房号加入。
+        NotificationManager.Instance?.ShowTip("join_room", false, "请输入房间号后点击加入");
+        return;
+#endif
         roomId = (roomId ?? "").Trim();
         if (string.IsNullOrEmpty(roomId)) {
             NotificationManager.Instance?.ShowTip("join_room", false, "请输入房间号");

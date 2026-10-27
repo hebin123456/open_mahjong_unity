@@ -18,6 +18,10 @@ public class RoomListPanel : MonoBehaviour {
     private readonly Dictionary<string, RoomItem> roomItems = new Dictionary<string, RoomItem>();
 
     private void Start() {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        // 浏览器访客没有本地服务端，不能创建房间；只保留刷新与按房号加入。
+        if (createButton != null) createButton.gameObject.SetActive(false);
+#endif
         createButton.onClick.AddListener(OpenCreatePanel);
         refreshButton.onClick.AddListener(RefreshRoomList);
         JoinRoomButton.onClick.AddListener(JoinRoom);
@@ -81,6 +85,12 @@ public class RoomListPanel : MonoBehaviour {
             return;
         }
         if (ConfigManager.SoloMode) {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // 浏览器访客已连上页面来源的主机服务（WebGuestBootstrap 覆写过地址），
+            // 无需 UDP 搜索，直接按房号加入。
+            RoomNetworkManager.Instance.JoinRoom(RoomIdInput.text, "");
+            return;
+#endif
             // 只做局域网对战：按房号广播搜索房主主机并直连加入，不再依赖局域网房间列表。
             LanRoomBrowser.JoinRoomById(RoomIdInput.text);
             return;

@@ -100,6 +100,9 @@ public static class SoloServerBootstrap {
             };
             // 局域网多人：监听 0.0.0.0 并开启 UDP 房间发现应答（Android 由 Python 侧默认开启）。
             psi.EnvironmentVariables["SOLO_LAN"] = "1";
+            // 局域网页面邀请：把打包进 StreamingAssets/WebHost 的 WebGL 客户端交给内嵌服务托管，
+            // 浏览器访客访问 http://主机IP:18763/ 即可加入（Android 端由 Python 侧解压 APK assets）。
+            psi.EnvironmentVariables["SOLO_WEBROOT"] = Path.Combine(Application.streamingAssetsPath, "WebHost");
             _proc = new System.Diagnostics.Process {
                 StartInfo = psi,
                 EnableRaisingEvents = true,
